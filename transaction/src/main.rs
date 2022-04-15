@@ -64,7 +64,7 @@ fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 	}
 
 	// number of inputs
-	let in_counter = txio::read_u8(&mut stream) as u64;
+	let in_counter = txio::read_compact_size(&mut stream);
 
 	let mut inputs: Vec<Input> = Vec::new();
 	for _ in 0..in_counter {
@@ -95,7 +95,7 @@ fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 	}
 
 	// number of outputs
-	let out_counter = txio::read_u8(&mut stream) as u64;
+	let out_counter = txio::read_compact_size(&mut stream);
 	assert_ne!(out_counter, 0);
 
 	let mut outputs: Vec<Output> = Vec::new();

@@ -31,10 +31,26 @@ pub fn encode_hex(bytes: &[u8]) -> String {
  * size <= UINT_MAX   -- 5 bytes  (254 + 4 bytes)
  * size >  UINT_MAX   -- 9 bytes  (255 + 8 bytes)
 */
-pub fn decode_varint(bytes: &[u8]) -> u64 {
-	let varint_size: u8 = 0;
-	let size: u64 = 0;
+pub fn read_compact_size(stream: &mut Cursor<Vec<u8>>) -> u64 {
+	let  varint_size: u8 = read_u8(stream);
+	let size: u64;
 
+	if varint_size < 253 {
+		size = varint_size as u64;
+	} else if varint_size == 253 {
+		size = read_u16(stream) as u64;
+		assert!(size > 253);
+	} else if varint_size == 254 {
+		size = read_u32(stream) as u64;
+		assert!(size > 0x10000);
+	} else if varint_size == 255 {
+		size = read_u64(stream);
+		assert!(size > 0x100000000);
+	} else {
+		panic!()
+	}
+
+	assert!(size != 0);
 	size
 }
 

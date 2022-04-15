@@ -19,17 +19,20 @@ pub fn encode_hex(bytes: &[u8]) -> String {
 	s
 }
 
-// can't do i32::from_le_bytes because from_le_bytes requires a 4 byte input
-// can convert 2 bytes to 4 bytes: https://dev.to/wayofthepie/three-bytes-to-an-integer-13g5
-
 // ---- Buffer reading ----
 
 /**
  * Compact Size
+ * https://en.bitcoin.it/wiki/Protocol_documentation#Variable_length_integer
  * size <  253        -- 1 byte
  * size <= USHRT_MAX  -- 3 bytes  (253 + 2 bytes)
  * size <= UINT_MAX   -- 5 bytes  (254 + 4 bytes)
  * size >  UINT_MAX   -- 9 bytes  (255 + 8 bytes)
+ * fc -> 0-252
+ * fd -> 0000 (253 + 2 bytes)
+ * fe -> 0000 0000 (254 + 4 bytes)
+ * ff -> 0000 0000 0000 0000 (255 + 8 bytes)
+ * check bitcoin/src/serialize.h file
 */
 pub fn read_compact_size(stream: &mut Cursor<Vec<u8>>) -> u64 {
 	let  varint_size: u8 = read_u8(stream);
@@ -123,3 +126,7 @@ pub fn unread(stream: &mut Cursor<Vec<u8>>, length: i64) {
 		Err(e) => panic!("{}", e)
 	}
 }
+
+// can't do i32::from_le_bytes because from_le_bytes requires a 4 byte input
+// can convert 2 bytes to 4 bytes: https://dev.to/wayofthepie/three-bytes-to-an-integer-13g5
+

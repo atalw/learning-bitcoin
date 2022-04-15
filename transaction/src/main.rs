@@ -71,16 +71,8 @@ fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 
 		let previous_tx = txio::read_hex256(&mut stream);
 		let tx_index = txio::read_u32(&mut stream);
-		// question: why are there 2 extra bytes in script_sig? in/out_script_length specifies it
-		// Taking length of 1 byte is wrong. Can be of length 1, 3, 5, or 9. Check spec
-		// https://en.bitcoin.it/wiki/Transaction
-		// https://en.bitcoin.it/wiki/Protocol_documentation#Variable_length_integer
-		// fc -> 0-252
-		// fd -> 0000 (253 + 2 bytes)
-		// fe -> 0000 0000 (254 + 4 bytes)
-		// ff -> 0000 0000 0000 0000 (255 + 8 bytes)
-		// check bitcoin/src/serialize.h file
-		let in_script_length = txio::read_u8(&mut stream) as u64;
+		// question: why are there n extra bytes in script_sig? in/out_script_length specifies it
+		let in_script_length = txio::read_compact_size(&mut stream);
 		let script_sig= txio::read_hex_var(&mut stream, in_script_length);
 		let sequence = txio::read_hex32(&mut stream);
 
@@ -102,7 +94,7 @@ fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 	for _ in 0..out_counter {
 
 		let amount = txio::read_u64(&mut stream);
-		let out_script_length = txio::read_u8(&mut stream) as u64;
+		let out_script_length = txio::read_compact_size(&mut stream);
 		let script_pub_key = txio::read_hex_var(&mut stream, out_script_length);
 
 		let output = Output {

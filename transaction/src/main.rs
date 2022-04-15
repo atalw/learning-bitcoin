@@ -1,15 +1,17 @@
-use std::error::Error;use std::fmt::write;
-use std::num::ParseIntError;
+use std::error::Error;
+use std::io::Cursor;
 
 use serde_json::Value;
+
+mod txio;
 
 #[derive(Debug)]
 struct Transaction {
 	version: u32,
 	flag: Option<u16>,
-	in_counter: u16,
+	in_counter: u64, // varint -> byte size 1-9
 	inputs: Vec<Input>,
-	out_counter: u16,
+	out_counter: u64, // varint -> byte size 1-9
 	outputs: Vec<Output>,
 	lock_time: u32
 }
@@ -17,14 +19,14 @@ struct Transaction {
 #[derive(Debug)]
 struct Input {
 	previous_tx: String,
-	tx_index: String,
+	tx_index: u32,
 	script_sig: String,
 	sequence: String,
 }
 
 #[derive(Debug)]
 struct Output {
-	amount: i64,
+	amount: u64,
 	script_pub_key: String,
 }
 
@@ -44,77 +46,40 @@ fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 	println!("raw transaction: {}", d["result"]);
 	println!("-------------------");
 
-	let result: Vec<u8> = decode_hex(d["result"].as_str().unwrap())?;
-
-	// println!("input bytes: {:?}", result);
-	// println!("-------------------");
-
-	let mut pointer: usize = 0;
+	// convert to bytes
+	let result: Vec<u8> = txio::decode_hex(d["result"].as_str().unwrap())?;
+	let mut stream = Cursor::new(result.clone());
 
 	// version: always 4 bytes long
-	pointer += 4;
-	let mut version_bytes = [0; 4];
-	version_bytes.copy_from_slice(&result[..pointer]);
-	let version = get_decimal_value_u32(&version_bytes);
-	// println!("version: {:?} {} {}", version_bytes, version, u32::from_le_bytes(version_bytes));
+	let version = txio::read_u32(&mut stream);
 
 	// optional, always 0001 if present
-	let mut segwit_bytes = [0; 2];
-	segwit_bytes.copy_from_slice(&result[pointer..pointer+2]);
-	let mut flag: Option<u16> = None;
-	if segwit_bytes[1] == 1 { 
-		pointer += 2;
-		flag = Some(0001);
-		// println!("segwit flag: {:?}", encode_hex(&segwit_bytes));
+	let mut flag = Some(txio::read_u16_be(&mut stream));
+	if flag != Some(1) {
+		txio::unread(&mut stream, -2);
+		flag = None
 	}
 
-
-	let mut in_counter_bytes = [0; 1];
-	in_counter_bytes.copy_from_slice(&result[pointer..pointer+1]);
-	let in_counter = get_decimal_value_u16(&in_counter_bytes);
-	assert_ne!(in_counter, 0);
-	// println!("number of inputs: {:?}", in_counter);
-	pointer += 1;
+	// number of inputs
+	let in_counter = txio::read_u8(&mut stream) as u64;
 
 	let mut inputs: Vec<Input> = Vec::new();
-	let mut index: usize = 0;
-	for i in 0..in_counter {
+	for _ in 0..in_counter {
 
-		// start_index: 7
-		// start_index: 7 + 64 (each input is 64 bytes)
-		let mut previous_tx_bytes = [0; 32];
-		let start_index = pointer + (i*64) as usize;
-		let end_index = start_index + 32;
-		previous_tx_bytes.copy_from_slice(&result[start_index..end_index]);
-		let previous_tx = encode_hex(&previous_tx_bytes);
-
-		let mut tx_index_bytes = [0; 4];
-		let start_index = end_index;
-		let end_index = start_index + 4;
-		tx_index_bytes.copy_from_slice(&result[start_index..end_index]);
-		let tx_index = encode_hex(&tx_index_bytes);
-
+		let previous_tx = txio::read_hex256(&mut stream);
+		let tx_index = txio::read_u32(&mut stream);
+		// question: why are there 2 extra bytes in script_sig? in/out_script_length specifies it
 		// Taking length of 1 byte is wrong. Can be of length 1, 3, 5, or 9. Check spec
 		// https://en.bitcoin.it/wiki/Transaction
 		// https://en.bitcoin.it/wiki/Protocol_documentation#Variable_length_integer
-		let mut out_script_length_bytes = [0; 1];
-		let start_index = end_index;
-		let end_index = start_index + 1;
-		out_script_length_bytes.copy_from_slice(&result[start_index..end_index]);
-		let out_script_length = get_decimal_value_usize(&out_script_length_bytes);
-
-		let mut script_sig_bytes = vec![0; out_script_length];
-		let start_index = end_index;
-		let end_index = start_index + out_script_length;
-		script_sig_bytes.copy_from_slice(&result[start_index..end_index]);
-		let script_sig= encode_hex(&script_sig_bytes);
-
-		let mut sequence_bytes = [0; 4];
-		let start_index = end_index;
-		let end_index = start_index + 4;
-		index = end_index;
-		sequence_bytes.copy_from_slice(&result[start_index..end_index]);
-		let sequence = encode_hex(&sequence_bytes);
+		// fc -> 0-252
+		// fd -> 0000 (253 + 2 bytes)
+		// fe -> 0000 0000 (254 + 4 bytes)
+		// ff -> 0000 0000 0000 0000 (255 + 8 bytes)
+		// check bitcoin/src/serialize.h file
+		let in_script_length = txio::read_u8(&mut stream) as u64;
+		let script_sig= txio::read_hex_var(&mut stream, in_script_length);
+		let sequence = txio::read_hex32(&mut stream);
 
 		let input = Input {
 			previous_tx,
@@ -126,60 +91,16 @@ fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 		inputs.push(input);
 	}
 
-	// println!("vin: {:#?}", inputs);
-
-	let mut out_counter_bytes = [0; 1];
-	out_counter_bytes.copy_from_slice(&result[index..index+1]);
-	let out_counter = get_decimal_value_u16(&out_counter_bytes);
+	// number of outputs
+	let out_counter = txio::read_u8(&mut stream) as u64;
 	assert_ne!(out_counter, 0);
-	// println!("number of outputs: {:?}", out_counter);
 
 	let mut outputs: Vec<Output> = Vec::new();
-	let mut index = index + 1;
-	let mut output_size;
-
 	for _ in 0..out_counter {
 
-		output_size = 0;
-
-		// start_index: index + 32 (each output is 32 bytes)
-		let mut amount_bytes= [0; 8];
-		let start_index = index + output_size as usize;
-		let end_index = start_index + 8;
-		amount_bytes.copy_from_slice(&result[start_index..end_index]);
-		let amount = get_decimal_value_i64(&amount_bytes);
-
-		output_size += 8;
-
-		// question:   why are there 2 extra bytes? out_script_length specifies it
-		// output address 1: a9142c21151d54bd219dcc4c52e1cb38672dab8e36cc87
-		// output address 2: 76a91439b1050dba04b1d1bc556c2dcdcb3874ba3dc11e88ac
-		// Taking length of 1 byte is wrong. Can be of length 1, 3, 5, or 9. Check spec
-		// https://en.bitcoin.it/wiki/Transaction
-		// https://en.bitcoin.it/wiki/Protocol_documentation#Variable_length_integer
-		// fc -> 0-252
-		// fd -> 0000 (253 + 2 bytes)
-		// fe -> 0000 0000 (254 + 4 bytes)
-		// ff -> 0000 0000 0000 0000 (255 + 8 bytes)
-		// check bitcoin/src/serialize.h file
-		let mut out_script_length_bytes = [0; 1];
-		let start_index = end_index;
-		let end_index = start_index + 1;
-		out_script_length_bytes.copy_from_slice(&result[start_index..end_index]);
-		let out_script_length = get_decimal_value_usize(&out_script_length_bytes);
-
-		output_size += 1;
-		
-		// println!("amount: {:?} {}", encode_hex(&amount_bytes), amount);
-		// println!("out_script_length: {:?} {}", out_script_length_bytes, out_script_length);
-		let mut address_bytes = vec![0; out_script_length];
-		let start_index = end_index;
-		let end_index = start_index + out_script_length;
-		address_bytes.copy_from_slice(&result[start_index..end_index]);
-		let script_pub_key = encode_hex(&address_bytes);
-
-		index = end_index;
-		output_size += end_index - start_index;
+		let amount = txio::read_u64(&mut stream);
+		let out_script_length = txio::read_u8(&mut stream) as u64;
+		let script_pub_key = txio::read_hex_var(&mut stream, out_script_length);
 
 		let output = Output {
 			amount,
@@ -189,19 +110,13 @@ fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 		outputs.push(output);
 	}
 
-	// println!("vout: {:#?}", outputs);
-
 	// List of witnesses
 	if flag.is_some() {
 
 	}
 
 	// always 4 bytes long
-	let mut lock_time_bytes = [0; 4];
-	let start_index = index;
-	let end_index = start_index + 4;
-	lock_time_bytes.copy_from_slice(&result[start_index..end_index]);
-	let lock_time= get_decimal_value_u32(&lock_time_bytes);
+	let lock_time = txio::read_u32(&mut stream);
 
 
 	let transaction = Transaction {
@@ -217,47 +132,23 @@ fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 	Ok(transaction)
 }
 
-pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
-        .collect()
+
+/**
+ * Compact Size
+ * size <  253        -- 1 byte
+ * size <= USHRT_MAX  -- 3 bytes  (253 + 2 bytes)
+ * size <= UINT_MAX   -- 5 bytes  (254 + 4 bytes)
+ * size >  UINT_MAX   -- 9 bytes  (255 + 8 bytes)
+*/
+pub fn decode_varint(bytes: &[u8]) -> u64 {
+	let varint_size: u8 = 0;
+	let size: u64 = 0;
+
+	size
 }
 
-pub fn encode_hex(bytes: &[u8]) -> String {
-	let mut s = String::with_capacity(bytes.len() * 2);
-	for &b in bytes {
-		write(&mut s, format_args!("{:02x}", b)).unwrap();
-	}
-	s
-}
+// ---- Helpers ----
 
-// can't do i32::from_le_bytes because from_le_bytes requires a 4 byte input
-// can convert 2 bytes to 4 bytes: https://dev.to/wayofthepie/three-bytes-to-an-integer-13g5
-fn get_decimal_value_usize(bytes: &[u8; 1]) -> usize {
-    ((bytes[0] as usize) <<  0) +
-           ((0 as usize) <<  8)
-}
-
-fn get_decimal_value_u16(bytes: &[u8; 1]) -> u16 {
-    ((bytes[0] as u16) <<  0) +
-           ((0 as u16) <<  8)
-}
-
-fn get_decimal_value_u32(bytes: &[u8]) -> u32 {
-	u32::from_le_bytes(bytes.try_into().unwrap()) 
-}
-
-fn get_decimal_value_i32(bytes: &[u8]) -> i32 {
-	match i32::from_str_radix(&encode_hex(&bytes), 16) {
-		Ok(val) => val,
-		Err(e) => panic!("{}", e)
-	}
-}
-
-fn get_decimal_value_i64(bytes: &[u8]) -> i64 {
-	return i64::from_le_bytes(bytes.try_into().unwrap());
-}
 
 fn get_raw_transactions() -> Vec<String> {
 	// txid: db6e06ff6e53356cc22cd1b9b8d951ddf70dc6bb275ee76880a0b951c1c290e6
@@ -268,8 +159,8 @@ fn get_raw_transactions() -> Vec<String> {
 
 	let data_pre_segwit_two = "{\"result\": \"0100000001c997a5e56e104102fa209c6a852dd90660a20b2d9c352423edce25857fcd3704000000004847304402204e45e16932b8af514961a1d3a1a25fdf3f4f7732e9d624c6c61548ab5fb8cd410220181522ec8eca07de4860a4acdd12909d831cc56cbbac4622082221a8768d1d0901ffffffff0200ca9a3b00000000434104ae1a62fe09c5f51b13905f07f06b99a2f7159b2225f374cd378d71302fa28414e7aab37397f554a7df5f142c21c1b7303b8a0626f1baded5c72a704f7e6cd84cac00286bee0000000043410411db93e1dcdb8a016b49840f8c53bc1eb68a382e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac00000000\",\"error\": null,\"id\": null}".to_string();
 
-	return vec![data_segwit]
+	// return vec![data_segwit]
 	// return vec![data_pre_segwit_two, data_segwit]
-	// return vec![data_pre_segwit, data_pre_segwit_two, data_segwit]
+	return vec![data_pre_segwit, data_pre_segwit_two, data_segwit]
 }
 

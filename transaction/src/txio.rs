@@ -21,47 +21,27 @@ pub fn encode_hex(bytes: &[u8]) -> String {
 
 // can't do i32::from_le_bytes because from_le_bytes requires a 4 byte input
 // can convert 2 bytes to 4 bytes: https://dev.to/wayofthepie/three-bytes-to-an-integer-13g5
-fn get_decimal_value_usize(bytes: &[u8; 1]) -> usize {
-    ((bytes[0] as usize) <<  0) +
-           ((0 as usize) <<  8)
-}
-
-fn get_decimal_value_u8(bytes: &[u8; 1]) -> u8 {
-	return u8::from_le_bytes(*bytes)
-    // ((bytes[0] as u8) <<  0) +
-}
-
-fn get_decimal_value_u16(bytes: &[u8; 2]) -> u16 {
-	u16::from_le_bytes(*bytes)
-    // ((bytes[0] as u16) <<  0) +
-	// ((bytes[1] as u16) <<  8)
-}
-
-fn get_decimal_value_u32(bytes: &[u8]) -> u32 {
-	u32::from_le_bytes(bytes.try_into().unwrap()) 
-}
-
-fn get_decimal_value_i32(bytes: &[u8]) -> i32 {
-	match i32::from_str_radix(&encode_hex(&bytes), 16) {
-		Ok(val) => val,
-		Err(e) => panic!("{}", e)
-	}
-}
-
-fn get_decimal_value_u64(bytes: &[u8]) -> u64 {
-	return u64::from_le_bytes(bytes.try_into().unwrap());
-}
-
-fn get_decimal_value_i64(bytes: &[u8]) -> i64 {
-	return i64::from_le_bytes(bytes.try_into().unwrap());
-}
 
 // ---- Buffer reading ----
+
+/**
+ * Compact Size
+ * size <  253        -- 1 byte
+ * size <= USHRT_MAX  -- 3 bytes  (253 + 2 bytes)
+ * size <= UINT_MAX   -- 5 bytes  (254 + 4 bytes)
+ * size >  UINT_MAX   -- 9 bytes  (255 + 8 bytes)
+*/
+pub fn decode_varint(bytes: &[u8]) -> u64 {
+	let varint_size: u8 = 0;
+	let size: u64 = 0;
+
+	size
+}
 
 pub fn read_u8(stream: &mut Cursor<Vec<u8>>) -> u8 {
 	let mut bytes = [0; 1];
 	match stream.read(&mut bytes) {
-		Ok(_) => get_decimal_value_u8(&bytes),
+		Ok(_) => u8::from_le_bytes(bytes),
 		Err(e) => panic!("{}", e)
 	}
 }
@@ -69,7 +49,7 @@ pub fn read_u8(stream: &mut Cursor<Vec<u8>>) -> u8 {
 pub fn read_u16(stream: &mut Cursor<Vec<u8>>) -> u16 {
 	let mut bytes = [0; 2];
 	match stream.read(&mut bytes) {
-		Ok(_) => get_decimal_value_u16(&bytes),
+		Ok(_) => u16::from_le_bytes(bytes),
 		Err(e) => panic!("{}", e)
 	}
 }
@@ -84,7 +64,7 @@ pub fn read_u16_be(stream: &mut Cursor<Vec<u8>>) -> u16 {
 pub fn read_u32(stream: &mut Cursor<Vec<u8>>) -> u32 {
 	let mut bytes = [0; 4];
 	match stream.read(&mut bytes) {
-		Ok(_) => get_decimal_value_u32(&bytes),
+		Ok(_) => u32::from_le_bytes(bytes),
 		Err(e) => panic!("{}", e)
 	}
 }
@@ -92,7 +72,7 @@ pub fn read_u32(stream: &mut Cursor<Vec<u8>>) -> u32 {
 pub fn read_u64(stream: &mut Cursor<Vec<u8>>) -> u64 {
 	let mut bytes = [0; 8];
 	match stream.read(&mut bytes) {
-		Ok(_) => get_decimal_value_u64(&bytes),
+		Ok(_) => u64::from_le_bytes(bytes),
 		Err(e) => panic!("{}", e)
 	}
 }

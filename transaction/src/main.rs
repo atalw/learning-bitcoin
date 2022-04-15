@@ -6,6 +6,7 @@ use serde_json::Value;
 mod txio;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct Transaction {
 	version: u32,
 	flag: Option<u16>,
@@ -17,6 +18,7 @@ struct Transaction {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct Input {
 	previous_tx: String,
 	tx_index: u32,
@@ -25,6 +27,7 @@ struct Input {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct Output {
 	amount: u64,
 	script_pub_key: String,
@@ -111,13 +114,10 @@ fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 	}
 
 	// List of witnesses
-	if flag.is_some() {
-
-	}
+	if flag.is_some() {}
 
 	// always 4 bytes long
 	let lock_time = txio::read_u32(&mut stream);
-
 
 	let transaction = Transaction {
 		version,
@@ -132,24 +132,6 @@ fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 	Ok(transaction)
 }
 
-
-/**
- * Compact Size
- * size <  253        -- 1 byte
- * size <= USHRT_MAX  -- 3 bytes  (253 + 2 bytes)
- * size <= UINT_MAX   -- 5 bytes  (254 + 4 bytes)
- * size >  UINT_MAX   -- 9 bytes  (255 + 8 bytes)
-*/
-pub fn decode_varint(bytes: &[u8]) -> u64 {
-	let varint_size: u8 = 0;
-	let size: u64 = 0;
-
-	size
-}
-
-// ---- Helpers ----
-
-
 fn get_raw_transactions() -> Vec<String> {
 	// txid: db6e06ff6e53356cc22cd1b9b8d951ddf70dc6bb275ee76880a0b951c1c290e6
 	let data_pre_segwit= "{\"result\": \"02000000016dbad361f6a9f0c60e8b032e2008aa0a9151c7bf691464274c89315d2f6c52cc19000000fc0047304402204945c3e4f824d263bb22e117a12bfff741d996d594f07551c93e0fde77910d32022016c2b69daec51bd4afdd81bf90f76667dda515773b3da91174043fc7299acb5301473044022053c71a4730160b20e565cb669a44b793f42d2912e84d528cf203089abcb2874402203311303cfc36b91372e47d5fa0b22104e7c25bb5a8dcccd15c423620d5700304014c69522102047464f518269c6cba42b859d28e872ef8f6bb47d93e24d5c11ac6eca8a2845721029b48417598a2d2dab54ddddfca8e1a9c8d4967002180961f53a7748710c2176521036b1023b6c7ed689aaf3bc8ca9ee5c55da383ae0c44fc8b0fec91d6965dae5d5e53aeffffffff0450da1100000000001600141e129251311437eea493fce2a3644a5a1af8d40710731d00000000001976a9140ac4423b045a0c8ed5f4fb992256ed293a313ae088ac946b9b000000000017a914cd38af19a803de11ddcee3a45221ed9ac49140478761ea945a0000000017a9143572de0bb360f212ef8813a9e012f63a7035c9c98700000000\",\"error\": null,\"id\": null}".to_string();
@@ -160,7 +142,7 @@ fn get_raw_transactions() -> Vec<String> {
 	let data_pre_segwit_two = "{\"result\": \"0100000001c997a5e56e104102fa209c6a852dd90660a20b2d9c352423edce25857fcd3704000000004847304402204e45e16932b8af514961a1d3a1a25fdf3f4f7732e9d624c6c61548ab5fb8cd410220181522ec8eca07de4860a4acdd12909d831cc56cbbac4622082221a8768d1d0901ffffffff0200ca9a3b00000000434104ae1a62fe09c5f51b13905f07f06b99a2f7159b2225f374cd378d71302fa28414e7aab37397f554a7df5f142c21c1b7303b8a0626f1baded5c72a704f7e6cd84cac00286bee0000000043410411db93e1dcdb8a016b49840f8c53bc1eb68a382e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac00000000\",\"error\": null,\"id\": null}".to_string();
 
 	// return vec![data_segwit]
-	// return vec![data_pre_segwit_two, data_segwit]
-	return vec![data_pre_segwit, data_pre_segwit_two, data_segwit]
+	return vec![data_pre_segwit_two, data_segwit]
+	// return vec![data_pre_segwit, data_pre_segwit_two, data_segwit]
 }
 

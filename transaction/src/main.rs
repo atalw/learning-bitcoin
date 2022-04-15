@@ -39,7 +39,7 @@ fn main() {
 }
 
 fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
-	
+
 	let d: Value = serde_json::from_str(&data)?;
 	println!("raw transaction: {}", d["result"]);
 	println!("-------------------");
@@ -259,7 +259,6 @@ fn get_decimal_value_i64(bytes: &[u8]) -> i64 {
 	return i64::from_le_bytes(bytes.try_into().unwrap());
 }
 
-
 fn get_raw_transactions() -> Vec<String> {
 	// txid: db6e06ff6e53356cc22cd1b9b8d951ddf70dc6bb275ee76880a0b951c1c290e6
 	let data_pre_segwit= "{\"result\": \"02000000016dbad361f6a9f0c60e8b032e2008aa0a9151c7bf691464274c89315d2f6c52cc19000000fc0047304402204945c3e4f824d263bb22e117a12bfff741d996d594f07551c93e0fde77910d32022016c2b69daec51bd4afdd81bf90f76667dda515773b3da91174043fc7299acb5301473044022053c71a4730160b20e565cb669a44b793f42d2912e84d528cf203089abcb2874402203311303cfc36b91372e47d5fa0b22104e7c25bb5a8dcccd15c423620d5700304014c69522102047464f518269c6cba42b859d28e872ef8f6bb47d93e24d5c11ac6eca8a2845721029b48417598a2d2dab54ddddfca8e1a9c8d4967002180961f53a7748710c2176521036b1023b6c7ed689aaf3bc8ca9ee5c55da383ae0c44fc8b0fec91d6965dae5d5e53aeffffffff0450da1100000000001600141e129251311437eea493fce2a3644a5a1af8d40710731d00000000001976a9140ac4423b045a0c8ed5f4fb992256ed293a313ae088ac946b9b000000000017a914cd38af19a803de11ddcee3a45221ed9ac49140478761ea945a0000000017a9143572de0bb360f212ef8813a9e012f63a7035c9c98700000000\",\"error\": null,\"id\": null}".to_string();
@@ -273,3 +272,4 @@ fn get_raw_transactions() -> Vec<String> {
 	// return vec![data_pre_segwit_two, data_segwit]
 	// return vec![data_pre_segwit, data_pre_segwit_two, data_segwit]
 }
+

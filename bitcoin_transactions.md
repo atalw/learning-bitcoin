@@ -35,7 +35,8 @@ python check out -> float flake
 
 
 ## Notes
-https://gist.github.com/niftynei/32b037faca10c0210516b676d4503716
+
+[https://gist.github.com/niftynei/32b037faca10c0210516b676d4503716](https://gist.github.com/niftynei/32b037faca10c0210516b676d4503716)
 
 
 ----
@@ -68,3 +69,59 @@ $ bitcoin-cli getrawtransaction
     "id": null
 }
 ```
+
+-----
+
+## Day 2
+
+block subsidy => 6.25000000 bitcoin
+
+## Version
+Always 4 bytes long (either value 1, or 2)
+Why? 1. it is the default size of any number in most computer systems 2. future proofing
+[https://en.wikipedia.org/wiki/C_data_types](https://en.wikipedia.org/wiki/C_data_types)
+
+
+## Inputs
+count: number of inputs
+txid: 32 bytes
+vout: 4 bytes, little endian
+scriptSigL proves that you can spend it
+sequence: 4 bytes, little endian
+
+## Outpus
+count: number of outputs
+number of bytes for an output (compact size, "varint")
+amount: 8 bytes
+scriptPubKey: lockup the bitcoin so only a certain person can spend it.
+			  variable sized field
+
+## locktime
+4 bytes, little-endian
+
+## Where do transaction id's come from?
+It's the ID of a transaction (especially true for pre-segwit txs)
+
+Take the data of the signed transaction and run it through a ahs function TWICE.
+
+## Hashes
+
+Take any length of data, give it to a hash function. Hash function will "hash" the input -> always return data of a known size.
+
+Kinds
+sha128
+sha256
+sha512
+ripemd160
+
+"SHA" or "RIPEMD" -> description of the process they're going to use to product the hash.
+128, 256, 512, 160 -> the number of bits that the result (after hashing) will be (1 byte = 8 bits)
+
+Why hash twice?
+[https://crypto.stackexchange.com/a/50020](https://crypto.stackexchange.com/a/50020)
+
+----
+## Notes
+
+[https://gist.github.com/niftynei/f7c1a00f950ac57e8d0651b43a1d5044](https://gist.github.com/niftynei/f7c1a00f950ac57e8d0651b43a1d5044)
+

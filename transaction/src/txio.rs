@@ -11,7 +11,15 @@ pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
         .collect()
 }
 
-pub fn encode_hex(bytes: &[u8]) -> String {
+pub fn encode_hex_le(bytes: &[u8]) -> String {
+	let mut s = String::with_capacity(bytes.len() * 2);
+	for &b in bytes.iter().rev() {
+		write(&mut s, format_args!("{:02x}", b)).unwrap();
+	}
+	s
+}
+
+pub fn encode_hex_be(bytes: &[u8]) -> String {
 	let mut s = String::with_capacity(bytes.len() * 2);
 	for &b in bytes {
 		write(&mut s, format_args!("{:02x}", b)).unwrap();
@@ -35,19 +43,19 @@ pub fn encode_hex(bytes: &[u8]) -> String {
  * check bitcoin/src/serialize.h file
 */
 pub fn read_compact_size(stream: &mut Cursor<Vec<u8>>) -> u64 {
-	let  varint_size: u8 = read_u8(stream);
+	let  varint_size: u8 = read_u8_le(stream);
 	let size: u64;
 
 	if varint_size < 253 {
 		size = varint_size as u64;
 	} else if varint_size == 253 {
-		size = read_u16(stream) as u64;
+		size = read_u16_le(stream) as u64;
 		assert!(size > 253);
 	} else if varint_size == 254 {
-		size = read_u32(stream) as u64;
+		size = read_u32_le(stream) as u64;
 		assert!(size > 0x10000);
 	} else if varint_size == 255 {
-		size = read_u64(stream);
+		size = read_u64_le(stream);
 		assert!(size > 0x100000000);
 	} else {
 		panic!()
@@ -57,7 +65,7 @@ pub fn read_compact_size(stream: &mut Cursor<Vec<u8>>) -> u64 {
 	size
 }
 
-pub fn read_u8(stream: &mut Cursor<Vec<u8>>) -> u8 {
+pub fn read_u8_le(stream: &mut Cursor<Vec<u8>>) -> u8 {
 	let mut bytes = [0; 1];
 	match stream.read(&mut bytes) {
 		Ok(_) => u8::from_le_bytes(bytes),
@@ -65,7 +73,7 @@ pub fn read_u8(stream: &mut Cursor<Vec<u8>>) -> u8 {
 	}
 }
 
-pub fn read_u16(stream: &mut Cursor<Vec<u8>>) -> u16 {
+pub fn read_u16_le(stream: &mut Cursor<Vec<u8>>) -> u16 {
 	let mut bytes = [0; 2];
 	match stream.read(&mut bytes) {
 		Ok(_) => u16::from_le_bytes(bytes),
@@ -80,7 +88,7 @@ pub fn read_u16_be(stream: &mut Cursor<Vec<u8>>) -> u16 {
 	}
 }
 
-pub fn read_u32(stream: &mut Cursor<Vec<u8>>) -> u32 {
+pub fn read_u32_le(stream: &mut Cursor<Vec<u8>>) -> u32 {
 	let mut bytes = [0; 4];
 	match stream.read(&mut bytes) {
 		Ok(_) => u32::from_le_bytes(bytes),
@@ -88,7 +96,7 @@ pub fn read_u32(stream: &mut Cursor<Vec<u8>>) -> u32 {
 	}
 }
 
-pub fn read_u64(stream: &mut Cursor<Vec<u8>>) -> u64 {
+pub fn read_u64_le(stream: &mut Cursor<Vec<u8>>) -> u64 {
 	let mut bytes = [0; 8];
 	match stream.read(&mut bytes) {
 		Ok(_) => u64::from_le_bytes(bytes),
@@ -96,26 +104,26 @@ pub fn read_u64(stream: &mut Cursor<Vec<u8>>) -> u64 {
 	}
 }
 
-pub fn read_hex32(stream: &mut Cursor<Vec<u8>>) -> String {
+pub fn read_hex32_le(stream: &mut Cursor<Vec<u8>>) -> String {
 	let mut bytes = [0; 4];
 	match stream.read(&mut bytes) {
-		Ok(_) => encode_hex(&bytes),
+		Ok(_) => encode_hex_le(&bytes),
 		Err(e) => panic!("{}", e)
 	}
 }
 
-pub fn read_hex256(stream: &mut Cursor<Vec<u8>>) -> String {
+pub fn read_hex256_le(stream: &mut Cursor<Vec<u8>>) -> String {
 	let mut bytes = [0; 32];
 	match stream.read(&mut bytes) {
-		Ok(_) => encode_hex(&bytes),
+		Ok(_) => encode_hex_le(&bytes),
 		Err(e) => panic!("{}", e)
 	}
 }
 
-pub fn read_hex_var(stream: &mut Cursor<Vec<u8>>, length: u64) -> String {
+pub fn read_hex_var_be(stream: &mut Cursor<Vec<u8>>, length: u64) -> String {
 	let mut bytes = vec![0; length as usize];
 	match stream.read(&mut bytes) {
-		Ok(_) => encode_hex(&bytes),
+		Ok(_) => encode_hex_be(&bytes),
 		Err(e) => panic!("{}", e)
 	}
 }

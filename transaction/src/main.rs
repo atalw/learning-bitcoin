@@ -54,7 +54,7 @@ fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 	let mut stream = Cursor::new(result.clone());
 
 	// version: always 4 bytes long
-	let version = txio::read_u32(&mut stream);
+	let version = txio::read_u32_le(&mut stream);
 
 	// optional, always 0001 if present
 	let mut flag = Some(txio::read_u16_be(&mut stream));
@@ -69,12 +69,12 @@ fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 	let mut inputs: Vec<Input> = Vec::new();
 	for _ in 0..in_counter {
 
-		let previous_tx = txio::read_hex256(&mut stream);
-		let tx_index = txio::read_u32(&mut stream);
+		let previous_tx = txio::read_hex256_le(&mut stream);
+		let tx_index = txio::read_u32_le(&mut stream);
 		// question: why are there n extra bytes in script_sig? in/out_script_length specifies it
 		let in_script_length = txio::read_compact_size(&mut stream);
-		let script_sig= txio::read_hex_var(&mut stream, in_script_length);
-		let sequence = txio::read_hex32(&mut stream);
+		let script_sig= txio::read_hex_var_be(&mut stream, in_script_length);
+		let sequence = txio::read_hex32_le(&mut stream);
 
 		let input = Input {
 			previous_tx,
@@ -93,9 +93,9 @@ fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 	let mut outputs: Vec<Output> = Vec::new();
 	for _ in 0..out_counter {
 
-		let amount = txio::read_u64(&mut stream);
+		let amount = txio::read_u64_le(&mut stream);
 		let out_script_length = txio::read_compact_size(&mut stream);
-		let script_pub_key = txio::read_hex_var(&mut stream, out_script_length);
+		let script_pub_key = txio::read_hex_var_be(&mut stream, out_script_length);
 
 		let output = Output {
 			amount,
@@ -109,7 +109,7 @@ fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 	if flag.is_some() {}
 
 	// always 4 bytes long
-	let lock_time = txio::read_u32(&mut stream);
+	let lock_time = txio::read_u32_le(&mut stream);
 
 	let transaction = Transaction {
 		version,
@@ -133,8 +133,11 @@ fn get_raw_transactions() -> Vec<String> {
 
 	let data_pre_segwit_two = "{\"result\": \"0100000001c997a5e56e104102fa209c6a852dd90660a20b2d9c352423edce25857fcd3704000000004847304402204e45e16932b8af514961a1d3a1a25fdf3f4f7732e9d624c6c61548ab5fb8cd410220181522ec8eca07de4860a4acdd12909d831cc56cbbac4622082221a8768d1d0901ffffffff0200ca9a3b00000000434104ae1a62fe09c5f51b13905f07f06b99a2f7159b2225f374cd378d71302fa28414e7aab37397f554a7df5f142c21c1b7303b8a0626f1baded5c72a704f7e6cd84cac00286bee0000000043410411db93e1dcdb8a016b49840f8c53bc1eb68a382e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac00000000\",\"error\": null,\"id\": null}".to_string();
 
+	let data = "{\"result\": \"0100000001e11af7c4292505f99a4a5f4ff0818ac86c197bb16261f91af3f5cac661259c88000000006a473044022045c7199ffc8069a498135b7bb2678da16e8b5d49455b4a7ace755928c9339c7a022051cbf72024cf273444640f7b993b2bf3d329124b03e6744edaed5158a30e29b8012103fd9bc1e9803e739720e0f1c63e580a94656c7d0cab6cd083f0c0dfb221b90662ffffffff0200b080f6450100001976a9143b9552116adcc2fbd74fad44a4da603a727c816e88aca05ecf1c000100001976a914f90ce447f14847e841d4d2ecc76299b5bc77166188ac00000000\",\"error\": null,\"id\": null}".to_string();
+
+	return vec![data]
 	// return vec![data_segwit]
-	return vec![data_pre_segwit_two, data_segwit]
+	// return vec![data_pre_segwit_two, data_segwit]
 	// return vec![data_pre_segwit, data_pre_segwit_two, data_segwit]
 }
 

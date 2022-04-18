@@ -177,7 +177,7 @@ fn get_raw_transactions() -> Vec<String> {
 
 	let _data = "{\"result\": \"0100000001e11af7c4292505f99a4a5f4ff0818ac86c197bb16261f91af3f5cac661259c88000000006a473044022045c7199ffc8069a498135b7bb2678da16e8b5d49455b4a7ace755928c9339c7a022051cbf72024cf273444640f7b993b2bf3d329124b03e6744edaed5158a30e29b8012103fd9bc1e9803e739720e0f1c63e580a94656c7d0cab6cd083f0c0dfb221b90662ffffffff0200b080f6450100001976a9143b9552116adcc2fbd74fad44a4da603a727c816e88aca05ecf1c000100001976a914f90ce447f14847e841d4d2ecc76299b5bc77166188ac00000000\",\"error\": null,\"id\": null}".to_string();
 
-	// return vec![_data]
+	return vec![_data]
 	// return vec![_data_segwit]
 	// return vec![_data_pre_segwit_two, _data_segwit]
 	// return vec![_data_pre_segwit, _data_pre_segwit_two, _data_segwit]

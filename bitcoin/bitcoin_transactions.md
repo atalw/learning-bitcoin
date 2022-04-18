@@ -1,4 +1,4 @@
-# Base58 Week 1 - Bitcoin Transactions
+# Bitcoin Transactions
 
 What we'll cover?
 

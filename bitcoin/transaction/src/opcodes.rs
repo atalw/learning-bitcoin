@@ -1,6 +1,6 @@
-use std::fmt;
-
 /// Code picked up from https://github.com/rust-bitcoin/rust-bitcoin/blob/master/src/blockdata/opcodes.rs
+
+use std::fmt;
 
 /// A script Opcode.
 #[derive(Copy, Clone, PartialEq, Eq)]

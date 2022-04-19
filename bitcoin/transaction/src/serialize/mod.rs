@@ -4,14 +4,32 @@
 use std::fmt;
 use crate::opcodes;
 
-// Why box? https://doc.rust-lang.org/book/ch15-01-box.html
+use ripemd::Ripemd160;
+use sha2::{Sha256, Digest};
 
+// Why box? https://doc.rust-lang.org/book/ch15-01-box.html
 pub struct Script(Box<[u8]>);
 
 /// Build the script piece by piece
 struct Builder(Vec<u8>);
 
+pub fn create_hash160(bytes: &[u8]) -> Vec<u8> {
+	let hash256 = Sha256::digest(bytes);
+	let hash160 = Ripemd160::digest(hash256);
+	return hash160.to_vec()
+}
+
 impl Script {
+	pub fn new_p2pkh(script_hash: &[u8]) -> Self {
+		Builder::new()
+			.push_opcode(opcodes::all::OP_DUP)
+			.push_opcode(opcodes::all::OP_HASH160)
+			.push_script_hash(script_hash)
+			.push_opcode(opcodes::all::OP_EQUALVERIFY)
+			.push_opcode(opcodes::all::OP_CHECKSIG)
+			.into_script()
+	}
+
 	pub fn new_p2sh(script_hash: &[u8]) -> Self {
 		Builder::new()
 			.push_opcode(opcodes::all::OP_HASH160)
@@ -51,7 +69,6 @@ impl Builder {
 	}
 
 	pub fn into_script(self) -> Script {
-		// let mut slice = self.push_var_int(self.0.len());
 		Script(self.0.into_boxed_slice())
 	}
 

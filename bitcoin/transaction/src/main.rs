@@ -47,18 +47,19 @@ fn main() {
 	//     break
 	// }
 
-	let script = create_script();
+	let script = create_scriptpubkey();
 	println!("script: {:02x?}", script);
 }
 
-fn create_script() -> serialize::Script {
+fn create_scriptpubkey() -> serialize::Script {
 	let script_hash = create_script_hash();
 	serialize::Script::new_p2sh(&script_hash)
+	// serialize::Script::new_p2pkh(&script_hash)
 }
 
 fn create_script_hash() -> Vec<u8> {
 	let bytes = b"this is a string";
-	return bytes.to_vec()
+	serialize::create_hash160(bytes)
 }
 
 fn get_raw_transactions() -> Vec<String> {

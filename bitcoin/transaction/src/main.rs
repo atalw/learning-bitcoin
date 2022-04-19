@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 
+mod serialize;
 mod deserialize;
 mod txio;
+mod opcodes;
 
 #[derive(Debug)]
 pub struct Transaction {

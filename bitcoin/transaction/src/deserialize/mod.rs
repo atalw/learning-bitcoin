@@ -1,3 +1,4 @@
+/// Responsible for parsing a transaction and making it human readable
 use std::error::Error;
 use std::io::Cursor;
 

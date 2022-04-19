@@ -1,9 +1,11 @@
 /// Responsible for creating a transaction and making it Bitcoin readable
 /// Code help from https://github.com/rust-bitcoin/rust-bitcoin/blob/master/src/blockdata/script.rs
 
+use std::fmt;
 use crate::opcodes;
 
 // Why box? https://doc.rust-lang.org/book/ch15-01-box.html
+
 pub struct Script(Box<[u8]>);
 
 /// Build the script piece by piece
@@ -19,12 +21,37 @@ impl Script {
 	}
 }
 
+impl fmt::Debug for Script {
+	// fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	//     f.write_str("Script(")?;
+	//     // self.fmt_asm(f)?;
+	//     // write!(f, "{:02x}", self.0.as_ref());
+	//     f.write_str(")")
+	// }
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for &ch in self.0.iter() {
+            write!(f, "{:02x}", ch)?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::LowerHex for Script {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for &ch in self.0.iter() {
+            write!(f, "{:02x}", ch)?;
+        }
+        Ok(())
+    }
+}
+
 impl Builder {
 	pub fn new() -> Self {
 		Builder(vec![])	
 	}
 
-	pub fn into_script(mut self) -> Script {
+	pub fn into_script(self) -> Script {
+		// let mut slice = self.push_var_int(self.0.len());
 		Script(self.0.into_boxed_slice())
 	}
 
@@ -34,7 +61,7 @@ impl Builder {
 	}
 
 	pub fn push_script_hash(mut self, script_hash: &[u8]) -> Self {
-		self.write_var_int(script_hash.len());
+		self.push_var_int(script_hash.len());
 		self.0.extend(script_hash.iter().cloned());
 		self	
 	}
@@ -52,8 +79,8 @@ impl Builder {
 	 * ff -> 0000 0000 0000 0000 (255 + 8 bytes)
 	 * check bitcoin/src/serialize.h file
 	 */
-	fn write_var_int(mut self, n: usize) {
-		if n < opcodes::all::OP_PUSHDATA1 as usize {
+	fn push_var_int(&mut self, n: usize) {
+		if n < opcodes::all::OP_PUSHDATA1.into_u8() as usize {
 			self.0.push(n as u8);
 		} else if n < 0x100 { // 256
 			self.0.push(opcodes::all::OP_PUSHDATA1.into_u8());
@@ -71,3 +98,4 @@ impl Builder {
 		}
 	}
 }
+

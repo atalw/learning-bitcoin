@@ -39,13 +39,26 @@ pub struct ExtraInfo {
 }
 
 fn main() {
-	for raw_transaction in get_raw_transactions() {
-		match deserialize::parse_raw_data(raw_transaction) {
-			Ok(transaction) => { println!("{:#?}", transaction) },
-			Err(e) => panic!("{}", e)
-		}
-		break
-	}
+	// for raw_transaction in get_raw_transactions() {
+	//     match deserialize::parse_raw_data(raw_transaction) {
+	//         Ok(transaction) => { println!("{:#?}", transaction) },
+	//         Err(e) => panic!("{}", e)
+	//     }
+	//     break
+	// }
+
+	let script = create_script();
+	println!("script: {:02x?}", script);
+}
+
+fn create_script() -> serialize::Script {
+	let script_hash = create_script_hash();
+	serialize::Script::new_p2sh(&script_hash)
+}
+
+fn create_script_hash() -> Vec<u8> {
+	let bytes = b"this is a string";
+	return bytes.to_vec()
 }
 
 fn get_raw_transactions() -> Vec<String> {

@@ -37,6 +37,8 @@
 	- Causes scriptsig to be invalid. 
 	- Applies to all transactions spending an output i.e. an input
 	- Eg. `OP_CLTV` (absolute) and `OP_CSV` (relative)
+	- `OP_CLTV` -> [https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki](https://github.com/bitcoin/bips/blob/master/bip-0065.mediawiki)
+	- `OP_CSV` -> [https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki](https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki)
 
 Transaction-level locks affect what you can do with a transaction after it’s constructed, but Script-level locks determine what transactions can be made in the first place.
 
@@ -48,8 +50,6 @@ Transaction-level locks affect what you can do with a transaction after it’s c
 **Q. What is P2SH?**
 
 It's a type of ScriptPubKey which allows for the spending of bitcoin based on the satisfaction of the script whose hash is specified within the transaction.
-
-**Q. Transaction locks aren’t as useful as you might think. They don’t control coins, only spends. What does this mean? TODO**
 
 **Q. What is CSV and CLTV?**
 
@@ -77,7 +77,9 @@ check if the requirements are being met by itself?**
 `CLTV` is a script-level absolute time lock. It compares the top item of the stack to the transactions `nLocktime`. It checks that the top item of the stack is a valid time in seconds or blocks, and that the transaction itself is locked for at least that long via an appropriate `lock_time`. It does this so that it can check that the transaction can't be confirmed before a certain time.
 - Comparing the lock time specified in the script to the lock time of the transaction is great because the time is checked only indirectly.
 - It passes enforcement to the `nLocktime` consensus rules while still allowing scipts to specify multiple different time-locked conditions.
-- It allows scriptsig validity to be checked at any time and cached.
+- It allows scriptsig validity to be checked at any time and [cached](https://bitcointechtalk.com/whats-new-in-bitcoin-core-v0-15-part-5-6a9cfa85821f).
+	- cache size: 60mb which stores up to 500,000 scripts
+	- Why not cache the entire tx? Tx validity is context-specific. A tx can be valid in one block and invalid in another.
 - The The downside is that if `OP_CLTV` is used in the script, `lock_time` must be specified in the spending transaction, and a `sequence_no` less than `0xFFFFFFFF` must be present in the input.
 
 `CSV` is a script-level relative time lock. It compares the top item of the stack to the input's `sequence_no` field. `OP_CSV` parses stack items the same way nSequence interprets lock-times. It respects nSequence's disable flag and type flag, and reads 16-bit lock duration specifications from the last 16 bits of the stack item. 
@@ -88,6 +90,24 @@ Is the reason `CSV` checks `sequence_no` the same as it was for `CLTV`?
 
 [https://github.com/bitcoinbook/bitcoinbook/blob/develop/ch07.asciidoc#median-time-past](https://github.com/bitcoinbook/bitcoinbook/blob/develop/ch07.asciidoc#median-time-past)
 
+**Q. Can both CSV and CLTV be used in the same output and are there any known use cases for it?**
+	
+--
+
+
+**Q. In what scenarios is `OP_CLTV` used in Lightning and in what scenarios is `OP_CSV` used?**
+
+HTLCs include a refund clause that is connected to a timelock. This is needed incase the payment fails because of an offline node for eg. It ensures atomicity so that the entire end-to-end payment either succeeds or fails gracefully. `OP_CLTV` is used for this. Read more [here](https://github.com/lnbook/lnbook/blob/develop/08_routing_htlcs.asciidoc#htlc-cooperative-and-timeout-failure).
+
+To allow an opportunity for penalty transactions, in case of a revoked commitment transaction, all outputs that return funds to the owner of the commitment transaction must be delayed for x blocks. This is to allow the counterparty to claim penalty incase an incorrectly broadcasted revoked commitment tx. This delay is done in a second-stage HTLC transaction. This output sends funds back to the owner of this commitment transaction and thus must be timelocked using `OP_CSV`. Read more [here](https://github.com/lightning/bolts/blob/master/03-transactions.md#commitment-transaction-outputs). To know more on why it is done in a second-stage HTLC, read [this](https://bitcoin.stackexchange.com/questions/95355/why-does-every-htlc-in-a-commitment-transaction-require-its-own-signature). [Why do we need revocation in the first place and how does LN-penalty work?](https://www.derpturkey.com/revocable-transactions-with-ln-penalty/) (key blinding is interesting).
+ 
+
+`OP_CSV` is used in lightning commitment transactions to enforce a delay between publishing the commitment transaction, and spending the output -- that delay is needed so that the counterparty has time to prove the commitment was revoked and claim the outputs as a penalty. Why [here](https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2015-October/011423.html).
+
+
+**Why can OP_CLTV and OP_CSV not touch the stack? Why are they always either followed by OP_DROP or at the end of the script? What are the pros and cons of real-time negotiation of channel parameters?**
+
+--
 
 ----
 

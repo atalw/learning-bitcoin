@@ -2,16 +2,13 @@
 /// Code help from https://github.com/rust-bitcoin/rust-bitcoin/blob/master/src/blockdata/script.rs
 
 use std::fmt;
-use crate::opcodes;
+use crate::{opcodes, Script};
 
 use ripemd::Ripemd160;
 use sha2::{Sha256, Digest};
 
-// Why box? https://doc.rust-lang.org/book/ch15-01-box.html
-pub struct Script(Box<[u8]>);
-
 /// Build the script piece by piece
-struct Builder(Vec<u8>);
+struct ScriptBuilder(Vec<u8>);
 
 pub fn create_hash160(bytes: &[u8]) -> Vec<u8> {
 	let hash256 = Sha256::digest(bytes);
@@ -21,7 +18,7 @@ pub fn create_hash160(bytes: &[u8]) -> Vec<u8> {
 
 impl Script {
 	pub fn new_p2pkh(script_hash: &[u8]) -> Self {
-		Builder::new()
+		ScriptBuilder::new()
 			.push_opcode(opcodes::all::OP_DUP)
 			.push_opcode(opcodes::all::OP_HASH160)
 			.push_script_hash(script_hash)
@@ -31,7 +28,7 @@ impl Script {
 	}
 
 	pub fn new_p2sh(script_hash: &[u8]) -> Self {
-		Builder::new()
+		ScriptBuilder::new()
 			.push_opcode(opcodes::all::OP_HASH160)
 			.push_script_hash(script_hash)
 			.push_opcode(opcodes::all::OP_EQUAL)
@@ -63,21 +60,23 @@ impl fmt::LowerHex for Script {
     }
 }
 
-impl Builder {
-	pub fn new() -> Self {
-		Builder(vec![])	
+
+
+impl ScriptBuilder {
+	fn new() -> Self {
+		ScriptBuilder(vec![])	
 	}
 
-	pub fn into_script(self) -> Script {
+	fn into_script(self) -> Script {
 		Script(self.0.into_boxed_slice())
 	}
 
-	pub fn push_opcode(mut self, opcode: opcodes::All) -> Self {
+	fn push_opcode(mut self, opcode: opcodes::All) -> Self {
 		self.0.push(opcode.into_u8());
 		self	
 	}
 
-	pub fn push_script_hash(mut self, script_hash: &[u8]) -> Self {
+	fn push_script_hash(mut self, script_hash: &[u8]) -> Self {
 		self.push_var_int(script_hash.len());
 		self.0.extend(script_hash.iter().cloned());
 		self	

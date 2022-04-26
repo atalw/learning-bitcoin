@@ -38,31 +38,44 @@ pub struct ExtraInfo {
 	tx_size: u64,
 }
 
-fn main() {
-	// for raw_transaction in get_raw_transactions() {
-	//     match deserialize::parse_raw_data(raw_transaction) {
-	//         Ok(transaction) => { println!("{:#?}", transaction) },
-	//         Err(e) => panic!("{}", e)
-	//     }
-	//     break
-	// }
+// Why box? https://doc.rust-lang.org/book/ch15-01-box.html
+pub struct Script(Box<[u8]>);
 
-	let script = create_scriptpubkey();
-	println!("script: {:02x?}", script);
+fn main() {
+
+	// let transaction = decode_raw_transactions();
+	// println!("{:#?}", transaction);
+
+	// let script = create_scriptpubkey();
+	// println!("script: {:02x?}", script);
+
+	let script = decode_script();
+	println!("{:#?}", script);
 }
 
-fn create_scriptpubkey() -> serialize::Script {
+fn create_scriptpubkey() -> Script {
 	let script_hash = create_script_hash();
-	serialize::Script::new_p2sh(&script_hash)
+	Script::new_p2sh(&script_hash)
 	// serialize::Script::new_p2pkh(&script_hash)
 }
 
 fn create_script_hash() -> Vec<u8> {
+	// redeem script/original script
 	let bytes = b"this is a string";
 	serialize::create_hash160(bytes)
 }
 
-fn get_raw_transactions() -> Vec<String> {
+fn decode_script() -> String {
+	let script = "76a91414011f7254d96b819c76986c277d115efce6f7b58763ac67210394854aa6eab5b2a8122cc726e9dded053a2184d88256816826d6231c068d4a5b7c820120876475527c21030d417a46946384f88d5f3337267c5e579765875dc4daca813e21734b140639e752ae67a914b43e1b38138a41b37f7cd9a1d274bc63e3a9b5d188ac6868";
+
+	Script::new(script)
+	// match Script::new(script) {
+	//     Ok(s) => s,
+	//     Err(e) => panic!("{}", e)
+	// }
+}
+
+fn decode_raw_transactions() -> Transaction {
 	// txid: db6e06ff6e53356cc22cd1b9b8d951ddf70dc6bb275ee76880a0b951c1c290e6
 	let _data_pre_segwit= "{\"result\": \"02000000016dbad361f6a9f0c60e8b032e2008aa0a9151c7bf691464274c89315d2f6c52cc19000000fc0047304402204945c3e4f824d263bb22e117a12bfff741d996d594f07551c93e0fde77910d32022016c2b69daec51bd4afdd81bf90f76667dda515773b3da91174043fc7299acb5301473044022053c71a4730160b20e565cb669a44b793f42d2912e84d528cf203089abcb2874402203311303cfc36b91372e47d5fa0b22104e7c25bb5a8dcccd15c423620d5700304014c69522102047464f518269c6cba42b859d28e872ef8f6bb47d93e24d5c11ac6eca8a2845721029b48417598a2d2dab54ddddfca8e1a9c8d4967002180961f53a7748710c2176521036b1023b6c7ed689aaf3bc8ca9ee5c55da383ae0c44fc8b0fec91d6965dae5d5e53aeffffffff0450da1100000000001600141e129251311437eea493fce2a3644a5a1af8d40710731d00000000001976a9140ac4423b045a0c8ed5f4fb992256ed293a313ae088ac946b9b000000000017a914cd38af19a803de11ddcee3a45221ed9ac49140478761ea945a0000000017a9143572de0bb360f212ef8813a9e012f63a7035c9c98700000000\",\"error\": null,\"id\": null}".to_string();
 
@@ -73,8 +86,13 @@ fn get_raw_transactions() -> Vec<String> {
 
 	let _data = "{\"result\": \"0100000001e11af7c4292505f99a4a5f4ff0818ac86c197bb16261f91af3f5cac661259c88000000006a473044022045c7199ffc8069a498135b7bb2678da16e8b5d49455b4a7ace755928c9339c7a022051cbf72024cf273444640f7b993b2bf3d329124b03e6744edaed5158a30e29b8012103fd9bc1e9803e739720e0f1c63e580a94656c7d0cab6cd083f0c0dfb221b90662ffffffff0200b080f6450100001976a9143b9552116adcc2fbd74fad44a4da603a727c816e88aca05ecf1c000100001976a914f90ce447f14847e841d4d2ecc76299b5bc77166188ac00000000\",\"error\": null,\"id\": null}".to_string();
 
-	return vec![_data]
-	// return vec![_data_segwit]
-	// return vec![_data_pre_segwit_two, _data_segwit]
-	// return vec![_data_pre_segwit, _data_pre_segwit_two, _data_segwit]
+	let raw_transaction = _data;
+	// let raw_transaction = _data_segwit;
+	// let raw_transaction = _data_pre_segwit_two;
+	// let raw_transaction = _data_pre_segwit;
+
+	match deserialize::parse_raw_data(raw_transaction) {
+		Ok(transaction) => transaction,
+		Err(e) => panic!("{}", e)
+	}
 }

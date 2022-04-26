@@ -1,10 +1,48 @@
+/// Decode
 /// Responsible for parsing a transaction and making it human readable
 use std::error::Error;
 use std::io::Cursor;
 
 use serde_json::Value;
 
-use crate::{txio, Transaction, Input, Output, ExtraInfo};
+use crate::{txio, Transaction, Input, Output, ExtraInfo, Script, opcodes};
+
+impl Script {
+	// what a shitty hack
+	pub fn new(from: &str) -> String {
+		let data = txio::decode_hex(from).expect("uh oh");
+		let len = data.len();
+		let mut stream = Cursor::new(data);
+
+		let mut parsed = "".to_string();
+
+		while (stream.position() as usize) < len - 1 {
+			let b = txio::read_u8_le(&mut stream);
+			let opcode = opcodes::All::from(b);
+
+			if opcode == opcodes::all::OP_PUSHBYTES_1 {
+				let script = txio::read_hex_var_be(&mut stream, 1);
+				parsed.push_str(&script);
+				parsed.push_str(" ");
+			} else if opcode == opcodes::all::OP_PUSHBYTES_20 {
+				let script = txio::read_hex_var_be(&mut stream, 20);
+				parsed.push_str(&script);
+				parsed.push_str(" ");
+			} else if opcode == opcodes::all::OP_PUSHBYTES_33 {
+				let script = txio::read_hex_var_be(&mut stream, 33);
+				parsed.push_str(&script);
+				parsed.push_str(" ");
+			} else if opcode == opcodes::all::OP_PUSHNUM_2 {
+				parsed.push_str("2 ");
+			} else {
+				parsed.push_str(&format!("{:?} ", opcode));
+			}
+		}
+
+		parsed.to_string()
+	}
+
+}
 
 pub fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 	let d: Value = serde_json::from_str(&data)?;

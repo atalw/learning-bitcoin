@@ -5,7 +5,7 @@ use std::fmt;
 /// A script Opcode.
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct All {
-    code: u8,
+    pub code: u8,
 }
 
 pub mod all {

@@ -20,22 +20,17 @@ impl Script {
 			let b = txio::read_u8_le(&mut stream);
 			let opcode = opcodes::All::from(b);
 
-			if opcode == opcodes::all::OP_PUSHBYTES_1 {
-				let script = txio::read_hex_var_be(&mut stream, 1);
+			if opcode.code <= opcodes::all::OP_PUSHBYTES_75.into_u8() {
+				let len = opcode.code;
+				let script = txio::read_hex_var_be(&mut stream, len as u64);
 				parsed.push_str(&script);
 				parsed.push_str(" ");
-			} else if opcode == opcodes::all::OP_PUSHBYTES_20 {
-				let script = txio::read_hex_var_be(&mut stream, 20);
-				parsed.push_str(&script);
-				parsed.push_str(" ");
-			} else if opcode == opcodes::all::OP_PUSHBYTES_33 {
-				let script = txio::read_hex_var_be(&mut stream, 33);
-				parsed.push_str(&script);
-				parsed.push_str(" ");
-			} else if opcode == opcodes::all::OP_PUSHNUM_2 {
-				parsed.push_str("2 ");
+			} else if opcode.code >= opcodes::all::OP_PUSHNUM_1.into_u8() && 
+				opcode.code <= opcodes::all::OP_PUSHNUM_15.into_u8() {
+					let num = 1 + opcode.code - opcodes::all::OP_PUSHNUM_1.code;
+					parsed.push_str(&format!("{} ", num));
 			} else {
-				parsed.push_str(&format!("{:?} ", opcode));
+				parsed.push_str(&format!("{:02x?} ", opcode));
 			}
 		}
 

@@ -8,8 +8,7 @@ use serde_json::Value;
 use crate::{txio, Transaction, Input, Output, ExtraInfo, Script, opcodes};
 
 impl Script {
-	// what a shitty hack
-	pub fn new(from: &str) -> String {
+	pub fn asm(from: &str) -> String {
 		let data = txio::decode_hex(from).expect("uh oh");
 		let len = data.len();
 		let mut stream = Cursor::new(data);

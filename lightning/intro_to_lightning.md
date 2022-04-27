@@ -80,11 +80,13 @@ check if the requirements are being met by itself?**
 - It allows scriptsig validity to be checked at any time and [cached](https://bitcointechtalk.com/whats-new-in-bitcoin-core-v0-15-part-5-6a9cfa85821f).
 	- cache size: 60mb which stores up to 500,000 scripts
 	- Why not cache the entire tx? Tx validity is context-specific. A tx can be valid in one block and invalid in another.
-- The The downside is that if `OP_CLTV` is used in the script, `lock_time` must be specified in the spending transaction, and a `sequence_no` less than `0xFFFFFFFF` must be present in the input.
+- The downside is that if `OP_CLTV` is used in the script, `lock_time` must be specified in the spending transaction, and a `sequence_no` less than `0xFFFFFFFF` must be present in the input.
 
 `CSV` is a script-level relative time lock. It compares the top item of the stack to the input's `sequence_no` field. `OP_CSV` parses stack items the same way nSequence interprets lock-times. It respects nSequence's disable flag and type flag, and reads 16-bit lock duration specifications from the last 16 bits of the stack item. 
 
-Is the reason `CSV` checks `sequence_no` the same as it was for `CLTV`?
+The reason `CSV` checks `sequence_no` is the same as it is for `CLTV`.
+
+Read [here](https://bitcoin.stackexchange.com/questions/45806/why-does-the-time-interval-for-op-csv-need-to-be-in-the-nsequence-field-when-it).
 
 **Q. What is Median-Time-Past?**
 
@@ -111,3 +113,44 @@ To allow an opportunity for penalty transactions, in case of a revoked commitmen
 
 ----
 
+**Q. When two parties exchange the previous commitment's secrets
+(to invalidate previous state), how do you make sure that the
+exchange happens atomically? (i.e., that both receive the other's
+secret, or none at all)**
+
+If we're going from Alice to Bob (A --> B), Alice sends a `commitment_signed` first. Bob sends a `revoke_and_ack` followed by a `commitment_signed`. Alice then sends a `revoke_and_ack`.
+
+When B sends the revoke_and_ack first, it includes the `per_commitment_secret` of the previous commitment tx (which belongs to B). A is giving money to B, so the previous commitment tx is one in which B has less, A has more. The secret B shares...
+
+
+----
+
+**Q. How can we prepare and anticipate for miners fees volatility
+when creating new payment channels? (What is the mechanic?)**
+
+I believe it's by creating multiple 
+
+anchor outputs
+rbf - 
+cpfp
+
+----
+
+**Q. Why was Segwit an important upgrade to the base layer for Lightning?**
+
+Segwit is a soft-fork which prevent nonintentional bitcoin transaction malleability, allow optional data transmission, and to bypass certain protocol restrictions (like the block size limit). It changes the transaction format of Bitcoin.
+
+It was also intended to mitigate a blockchain size limitation problem that reduces bitcoin transaction speed. It does this by splitting the transaction into two segments, removing the unlocking signature ("witness" data) from the original portion and appending it as a separate structure at the end.[3] The original section would continue to hold the sender and receiver data, and the new "witness" structure would contain scripts and signatures. The original data segment would be counted normally, but the "witness" segment would, in effect, be counted as a quarter of its real size. Read more [here](https://en.wikipedia.org/wiki/SegWit)
+
+A transaction malleability bug allows a user to change the tx id of tx before it is confirmed on the blockchain. Segwit fixes the issue. LN relies on a funding transaction to start a payment channel. If the txid can be changed, the channel becomes invalid.
+
+Read more [here](https://github.com/lnbook/lnbook/blob/develop/07_payment_channels.asciidoc#solving-malleability-segregated-witness).
+
+----
+
+**Q. How do you exchange previous commitment data if the parties
+aren't online at the same time?**
+
+Peer disconnected and connected? You wait for the peer to reconnect before sending the next messages?
+
+----

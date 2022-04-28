@@ -102,7 +102,7 @@ fn decode_raw_transactions() -> Transaction {
 	// let raw_transaction = _data_pre_segwit_two;
 	// let raw_transaction = _data_pre_segwit;
 
-	match deserialize::parse_raw_data(raw_transaction) {
+	match Transaction::from(raw_transaction) {
 		Ok(transaction) => transaction,
 		Err(e) => panic!("{}", e)
 	}

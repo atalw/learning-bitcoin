@@ -319,7 +319,7 @@ mod tests {
 		assert_eq!(raw_transaction, "01000000015dcb2625cc55a00079d49f38a7da8806b18cb60f8afa45279b174c89c5a86a65000000001976a91488fed7b8154069b5d2ace12fa4b7f96ab73d59df88acffffffff01e80300000000000003abcdef00000000".to_string());
 
 		// round trip
-		let tx = match deserialize::parse_raw_data(raw_transaction) {
+		let tx = match Transaction::from(raw_transaction) {
 			Ok(t) => t,
 			Err(e) => panic!("{}", e)
 		};

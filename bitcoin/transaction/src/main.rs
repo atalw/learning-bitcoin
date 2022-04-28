@@ -1,11 +1,13 @@
 #![allow(dead_code)]
 
+use std::io;
+
 mod serialize;
 mod deserialize;
 mod txio;
 mod opcodes;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Transaction {
 	version: u32,
 	flag: Option<u16>,
@@ -17,7 +19,7 @@ pub struct Transaction {
 	extra_info: Option<ExtraInfo>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Input {
 	/// Previous transaction hash. Doubled SHA256-hashed.
 	previous_tx: String,
@@ -31,13 +33,13 @@ pub struct Input {
 	prevout: Option<Output>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Output {
 	amount: u64,
 	script_pub_key: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ExtraInfo {
 	miner_fee: u64,
 	tx_size: u64,
@@ -57,7 +59,7 @@ fn main() {
 	// let script = decode_script();
 	// println!("{:#?}", script);
 	
-	let transaction = Transaction::new();
+	let transaction = Transaction::new(io::stdin().lock());
 	println!("{:#?}", transaction);
 	println!("{:#?}", transaction.as_hex());
 }

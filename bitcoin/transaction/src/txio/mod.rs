@@ -1,5 +1,5 @@
 use std::fmt::write;
-use std::io::{Read, Cursor, Seek, SeekFrom, self};
+use std::io::{Read, Cursor, Seek, SeekFrom, self, BufRead, Write, Error};
 use std::num::ParseIntError;
 
 // ---- Conversions ----
@@ -135,79 +135,90 @@ pub fn unread(stream: &mut Cursor<Vec<u8>>, length: i64) {
 	}
 }
 
-pub fn user_read_u32() -> u32 {
-	loop {
-		let mut line = String::new();
-		match io::stdin().read_line(&mut line) {
-			Ok(n) => {
-				if n <= 5 { // 4 bytes + \n
-					match line.trim_end().parse::<u32>() {
-						Ok(val) => return val,
-						Err(e) => println!("{}. Try again.", e)
-					}
-
-				} else {
-					println!("Number is too big. Try again.");
-				}
-			},
-			Err(e) => println!("{}. Try again!", e)
-		}
-	}
-}
-
-pub fn user_read_u64() -> u64 {
-	loop {
-		let mut line = String::new();
-		match io::stdin().read_line(&mut line) {
-			Ok(n) => {
-				if n <= 9 { // 8 bytes + \n
-					match line.trim_end().parse::<u64>() {
-						Ok(val) => return val,
-						Err(e) => println!("{}. Try again.", e)
-					}
-
-				} else {
-					println!("Number is too big. Try again.");
-				}
-			},
-			Err(e) => println!("{}. Try again!", e)
-		}
-	}
-}
-
-pub fn user_read_bool() -> bool {
-	loop {
-		let mut line = String::new();
-		match io::stdin().read_line(&mut line) {
-			Ok(_) => {
-				match line.trim_end().parse::<bool>() {
+// TODO: Can't figure out how to wrap read into a loop so that the user can enter the text again
+// and using Cursor for mock inputs.
+pub fn user_read_u32<R: BufRead>(reader: R) -> u32 {
+	let mut line = String::new();
+	match read_line(reader, &mut line) {
+		Ok(n) => {
+			if n <= 5 { // 4 bytes + \n
+				match line.trim_end().parse::<u32>() {
 					Ok(val) => return val,
-					Err(e) => println!("{}. Enter \"true\" or \"false\".", e)
+					Err(e) => panic!("{} {}", e, line)
 				}
-			},
-			Err(e) => println!("{}. Try again", e)
-		}
+
+			} else {
+				panic!("Number is too big");
+			}
+		},
+		Err(e) => panic!("{}", e)
 	}
 }
 
-pub fn user_read_hex(len: Option<u64>) -> String {
-	loop {
-		let mut line = String::new();
-		match io::stdin().read_line(&mut line) {
-			Ok(n) => {
-				if let Some(b) = len { 
-					if (n as u64 - 1) / 2 == b {
-						return line.trim_end().to_string()
-					} else {
-						println!("Expected {} bytes, got {} bytes. Try again!", b, n-1);
-					}
-				} else {
-					return line.trim_end().to_string()
+pub fn user_read_u64<R: BufRead>(reader: R) -> u64 {
+	let mut line = String::new();
+	match read_line(reader, &mut line) {
+		Ok(n) => {
+			if n <= 9 { // 8 bytes + \n
+				match line.trim_end().parse::<u64>() {
+					Ok(val) => return val,
+					Err(e) => panic!("{} {}", e, line)
 				}
-			},
-			Err(e) => println!("{}. Try again!", e)
-		}
+
+			} else {
+				panic!("Number is too big");
+			}
+		},
+		Err(e) => panic!("{}. Try again!", e)
 	}
+}
+
+pub fn user_read_bool<R: BufRead>(reader: R) -> bool {
+	let mut line = String::new();
+	match read_line(reader, &mut line) {
+		Ok(_) => {
+			match line.trim_end().parse::<bool>() {
+				Ok(val) => return val,
+				Err(e) => panic!("{}", e)
+			}
+		},
+		Err(e) => panic!("{}", e)
+	}
+}
+
+pub fn user_read_hex<R: BufRead>(reader: R, len: Option<u64>) -> String {
+	let mut line = String::new();
+	match read_line(reader, &mut line) {
+		Ok(n) => {
+			if let Some(b) = len { 
+				if (n as u64 - 1) / 2 == b {
+					return line.trim_end().to_string()
+				} else {
+					panic!("Expected {} bytes, got {} bytes", b, n-1);
+				}
+			} else {
+				return line.trim_end().to_string()
+			}
+		},
+		Err(e) => panic!("{}", e)
+	}
+}
+
+fn read_line<R>(mut reader: R, line: &mut String) -> Result<usize, Error>
+where
+    R: BufRead,
+{
+    reader.read_line(line)
+}
+
+// write transaction to hex serializer 
+
+pub fn write_u32_le(stream: &mut Cursor<Vec<u8>>, val: u32) -> String {
+	let bytes = val.to_le_bytes();
+	// match stream.write(bytes) {
+	//     Ok(
+	// }
+	encode_hex_le(&bytes)
 }
 
 // sometimes can't do i32::from_le_bytes because from_le_bytes requires a 4 byte input

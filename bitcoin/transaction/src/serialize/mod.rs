@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{Write, Cursor, BufRead};
 /// Responsible for creating a transaction and making it Bitcoin readable
 /// Code help from https://github.com/rust-bitcoin/rust-bitcoin/blob/master/src/blockdata/script.rs
 
@@ -28,27 +28,27 @@ pub fn create_hash256(bytes: &[u8]) -> Vec<u8> {
 
 impl Transaction {
 	/// Create new transaction from arguments provided by user
-	pub fn new() -> Self {
+	pub fn new<R>(mut reader: R) -> Self where R: BufRead {
 		print!("1. Version? (enter 1 or 2): ");
 		io::stdout().flush().unwrap();
-		let version = txio::user_read_u32();
+		let version = txio::user_read_u32(&mut reader);
 		// println!("2. Segwit? (enter true or false)");
 		// let flag = if txio::user_read_bool() { Some(1) } else { None };
 		let flag = None;
 		print!("2. Number of inputs?: ");
 		io::stdout().flush().unwrap();
-		let in_counter = txio::user_read_u64();
+		let in_counter = txio::user_read_u64(&mut reader);
 		let mut inputs = Vec::new();
 		for i in 0..in_counter {
 			println!("3. Enter input {}:", i);
 			println!("---- Previous transaction hex:");
-			let previous_tx = txio::user_read_hex(Some(32));
+			let previous_tx = txio::user_read_hex(&mut reader, Some(32));
 			println!("---- Output index:");
-			let tx_index = txio::user_read_u32();
+			let tx_index = txio::user_read_u32(&mut reader);
 			println!("---- Script_sig:");
-			let script_sig = txio::user_read_hex(None);
+			let script_sig = txio::user_read_hex(&mut reader, None);
 			println!("---- Sequence (in hex):");
-			let sequence = txio::user_read_hex(Some(4));
+			let sequence = txio::user_read_hex(&mut reader, Some(4));
 			let prevout = None;
 
 			inputs.push(Input {
@@ -62,14 +62,14 @@ impl Transaction {
 
 		print!("4. Number of outputs?: ");
 		io::stdout().flush().unwrap();
-		let out_counter = txio::user_read_u64();
+		let out_counter = txio::user_read_u64(&mut reader);
 		let mut outputs = Vec::new();
 		for i in 0..out_counter {
 			println!("5. Enter output {}:", i);
 			println!("---- Amount (in sats):");
-			let amount = txio::user_read_u64();
+			let amount = txio::user_read_u64(&mut reader);
 			println!("---- Script pubkey:");
-			let script_pub_key = txio::user_read_hex(None);
+			let script_pub_key = txio::user_read_hex(&mut reader, None);
 
 			outputs.push(Output {
 				amount,
@@ -79,7 +79,7 @@ impl Transaction {
 
 		print!("6. Locktime (in decimal): ");
 		io::stdout().flush().unwrap();
-		let lock_time = txio::user_read_u32();
+		let lock_time = txio::user_read_u32(&mut reader);
 		let extra_info = None;
 
 		Transaction { 
@@ -95,6 +95,10 @@ impl Transaction {
 	}
 
 	pub fn as_hex(self) -> String {
+		let mut raw_transaction = String::new();
+		let bytes: Vec<u8> = Vec::new();
+		let mut stream = Cursor::new(bytes);
+		txio::write_u32_le(&mut stream, 0);
 		"".to_owned()
 	}
 }
@@ -196,5 +200,69 @@ impl ScriptBuilder {
 			self.0.push((n / 0x1000000) as u8);
 		}
 	}
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+	use std::io::prelude::*;
+
+    use crate::{Transaction, Input, Output};
+
+    #[test]
+    fn transaction_pre_segwit() {
+		let mut stream = Cursor::new(Vec::new());
+
+		stream.write(b"1").expect("uh oh"); // version
+		stream.write(b"\n").expect("uh oh");
+		// stream.write(b"false").expect("uh oh"); // segwit flag
+		// stream.write(b"\n").expect("uh oh");
+		stream.write(b"1").expect("uh oh");
+		stream.write(b"\n").expect("uh oh");
+		stream.write(b"656aa8c5894c179b2745fa8a0fb68cb10688daa7389fd47900a055cc2526cb5d").expect("uh oh");
+		stream.write(b"\n").expect("uh oh");
+		stream.write(b"0").expect("uh oh");
+		stream.write(b"\n").expect("uh oh");
+		stream.write(b"76a91488fed7b8154069b5d2ace12fa4b7f96ab73d59df88ac").expect("uh oh");
+		stream.write(b"\n").expect("uh oh");
+		stream.write(b"ffffffff").expect("uh oh");
+		stream.write(b"\n").expect("uh oh");
+		stream.write(b"1").expect("uh oh");
+		stream.write(b"\n").expect("uh oh");
+		stream.write(b"1000").expect("uh oh");
+		stream.write(b"\n").expect("uh oh");
+		stream.write(b"scriptpubkey").expect("uh oh");
+		stream.write(b"\n").expect("uh oh");
+		stream.write(b"0").expect("uh oh");
+		stream.write(b"\n").expect("uh oh");
+
+		stream.seek(std::io::SeekFrom::Start(0)).expect("unable to seek");
+
+		let inputs = vec![Input {
+			previous_tx: "656aa8c5894c179b2745fa8a0fb68cb10688daa7389fd47900a055cc2526cb5d".to_string(),
+			tx_index: 0,
+			script_sig: "76a91488fed7b8154069b5d2ace12fa4b7f96ab73d59df88ac".to_string(),
+			sequence: "ffffffff".to_string(),
+			prevout: None,
+		}];
+
+		let outputs = vec![Output {
+			amount: 1000,
+			script_pub_key: "scriptpubkey".to_string(),
+		}];
+		
+		let transaction = Transaction {
+			version: 1,
+			flag: None,
+			in_counter: 1, // varint -> byte size 1-9
+			inputs,
+			out_counter: 1, // varint -> byte size 1-9
+			outputs,
+			lock_time: 0,
+			extra_info: None,
+		};
+
+		assert_eq!(Transaction::new(stream), transaction);
+    }
 }
 

@@ -14,16 +14,21 @@ pub struct Transaction {
 	out_counter: u64, // varint -> byte size 1-9
 	outputs: Vec<Output>,
 	lock_time: u32,
-	extra_info: ExtraInfo,
+	extra_info: Option<ExtraInfo>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Input {
+	/// Previous transaction hash. Doubled SHA256-hashed.
 	previous_tx: String,
+	/// Index of an output
 	tx_index: u32,
+	/// <unlocking script> <locking script>
 	script_sig: String,
+	/// Relative locktime of the input
 	sequence: String,
-	prevout: Output,
+	/// Previous output
+	prevout: Option<Output>,
 }
 
 #[derive(Debug, Clone)]
@@ -46,14 +51,18 @@ fn main() {
 	// let transaction = decode_raw_transactions();
 	// println!("{:#?}", transaction);
 
-	// let script = create_scriptpubkey();
+	// let script = create_p2sh_scriptpubkey();
 	// println!("script: {:02x?}", script);
 
-	let script = decode_script();
-	println!("{:#?}", script);
+	// let script = decode_script();
+	// println!("{:#?}", script);
+	
+	let transaction = Transaction::new();
+	println!("{:#?}", transaction);
+	println!("{:#?}", transaction.as_hex());
 }
 
-fn create_scriptpubkey() -> Script {
+fn create_p2sh_scriptpubkey() -> Script {
 	let script_hash = create_script_hash();
 	Script::new_p2sh(&script_hash)
 	// serialize::Script::new_p2pkh(&script_hash)

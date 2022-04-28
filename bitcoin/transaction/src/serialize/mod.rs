@@ -1,19 +1,102 @@
+use std::io::Write;
 /// Responsible for creating a transaction and making it Bitcoin readable
 /// Code help from https://github.com/rust-bitcoin/rust-bitcoin/blob/master/src/blockdata/script.rs
 
-use std::fmt;
-use crate::{opcodes, Script};
+use std::{fmt, io};
+use crate::{opcodes, Script, Transaction, txio, Input, Output};
 
 use ripemd::Ripemd160;
 use sha2::{Sha256, Digest};
+
+/// Build a transaction piece by piece
+struct TransactionBuilder(Vec<u8>);
 
 /// Build the script piece by piece
 struct ScriptBuilder(Vec<u8>);
 
 pub fn create_hash160(bytes: &[u8]) -> Vec<u8> {
-	let hash256 = Sha256::digest(bytes);
-	let hash160 = Ripemd160::digest(hash256);
+	let sha256 = Sha256::digest(bytes);
+	let hash160 = Ripemd160::digest(sha256);
 	return hash160.to_vec()
+}
+
+pub fn create_hash256(bytes: &[u8]) -> Vec<u8> {
+	let sha256 = Sha256::digest(bytes);
+	let hash256 = Sha256::digest(sha256);
+	return hash256.to_vec()
+}
+
+impl Transaction {
+	/// Create new transaction from arguments provided by user
+	pub fn new() -> Self {
+		print!("1. Version? (enter 1 or 2): ");
+		io::stdout().flush().unwrap();
+		let version = txio::user_read_u32();
+		// println!("2. Segwit? (enter true or false)");
+		// let flag = if txio::user_read_bool() { Some(1) } else { None };
+		let flag = None;
+		print!("2. Number of inputs?: ");
+		io::stdout().flush().unwrap();
+		let in_counter = txio::user_read_u64();
+		let mut inputs = Vec::new();
+		for i in 0..in_counter {
+			println!("3. Enter input {}:", i);
+			println!("---- Previous transaction hex:");
+			let previous_tx = txio::user_read_hex(Some(32));
+			println!("---- Output index:");
+			let tx_index = txio::user_read_u32();
+			println!("---- Script_sig:");
+			let script_sig = txio::user_read_hex(None);
+			println!("---- Sequence (in hex):");
+			let sequence = txio::user_read_hex(Some(4));
+			let prevout = None;
+
+			inputs.push(Input {
+				previous_tx,
+				tx_index,
+				script_sig,
+				sequence,
+				prevout,
+			});
+		}
+
+		print!("4. Number of outputs?: ");
+		io::stdout().flush().unwrap();
+		let out_counter = txio::user_read_u64();
+		let mut outputs = Vec::new();
+		for i in 0..out_counter {
+			println!("5. Enter output {}:", i);
+			println!("---- Amount (in sats):");
+			let amount = txio::user_read_u64();
+			println!("---- Script pubkey:");
+			let script_pub_key = txio::user_read_hex(None);
+
+			outputs.push(Output {
+				amount,
+				script_pub_key,
+			});
+		}
+
+		print!("6. Locktime (in decimal): ");
+		io::stdout().flush().unwrap();
+		let lock_time = txio::user_read_u32();
+		let extra_info = None;
+
+		Transaction { 
+			version,
+			flag,
+			in_counter,
+			inputs,
+			out_counter,
+			outputs,
+			lock_time,
+			extra_info,
+		}
+	}
+
+	pub fn as_hex(self) -> String {
+		"".to_owned()
+	}
 }
 
 impl Script {

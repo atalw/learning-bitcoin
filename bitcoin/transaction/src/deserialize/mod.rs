@@ -70,7 +70,7 @@ pub fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 		let script_sig= txio::read_hex_var_be(&mut stream, in_script_length);
 		let sequence = txio::read_hex32_le(&mut stream);
 		let prevout = match get_prevout(&previous_tx, tx_index) {
-			Ok(output) => output,
+			Ok(output) => Some(output),
 			Err(e) => panic!("{}", e)
 		};
 
@@ -105,24 +105,31 @@ pub fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 		outputs.push(output);
 	}
 
-	// List of witnesses
+	// list of witnesses
 	if flag.is_some() {}
 
 	// always 4 bytes long
 	let lock_time = txio::read_u32_le(&mut stream);
 
-	let total_input_amount = inputs.iter().fold(0, |acc, x| acc + x.prevout.amount);
-	let total_output_amount = outputs.iter().fold(0, |acc, x| acc + x.amount);
-	assert!(total_output_amount <= total_input_amount);
-	let miner_fee = total_input_amount - total_output_amount;
+	let extra_info: Option<ExtraInfo>;
 
-	let tx_size = stream.position();
+	if inputs.iter().all(|x| x.prevout.is_some()) {
+		// not sure if the x.prevout.to_owned().unwrap() is the best solution here.
+		let total_input_amount = inputs.iter().fold(0, |acc, x| acc + x.prevout.to_owned().unwrap().amount);
+		let total_output_amount = outputs.iter().fold(0, |acc, x| acc + x.amount);
+		assert!(total_output_amount <= total_input_amount);
+		let miner_fee = total_input_amount - total_output_amount;
 
+		let tx_size = stream.position();
 
-	let extra_info = ExtraInfo { 
-		miner_fee,
-		tx_size 
-	};
+		extra_info = Some(ExtraInfo { 
+			miner_fee,
+			tx_size 
+		});
+
+	} else {
+		extra_info = None;
+	}
 
 	let transaction = Transaction {
 		version,

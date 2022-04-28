@@ -1,5 +1,5 @@
 use std::fmt::write;
-use std::io::{Read, Cursor, Seek, SeekFrom};
+use std::io::{Read, Cursor, Seek, SeekFrom, self};
 use std::num::ParseIntError;
 
 // ---- Conversions ----
@@ -132,6 +132,81 @@ pub fn unread(stream: &mut Cursor<Vec<u8>>, length: i64) {
 	match stream.seek(SeekFrom::Current(length)) {
 		Ok(_) => (),
 		Err(e) => panic!("{}", e)
+	}
+}
+
+pub fn user_read_u32() -> u32 {
+	loop {
+		let mut line = String::new();
+		match io::stdin().read_line(&mut line) {
+			Ok(n) => {
+				if n <= 5 { // 4 bytes + \n
+					match line.trim_end().parse::<u32>() {
+						Ok(val) => return val,
+						Err(e) => println!("{}. Try again.", e)
+					}
+
+				} else {
+					println!("Number is too big. Try again.");
+				}
+			},
+			Err(e) => println!("{}. Try again!", e)
+		}
+	}
+}
+
+pub fn user_read_u64() -> u64 {
+	loop {
+		let mut line = String::new();
+		match io::stdin().read_line(&mut line) {
+			Ok(n) => {
+				if n <= 9 { // 8 bytes + \n
+					match line.trim_end().parse::<u64>() {
+						Ok(val) => return val,
+						Err(e) => println!("{}. Try again.", e)
+					}
+
+				} else {
+					println!("Number is too big. Try again.");
+				}
+			},
+			Err(e) => println!("{}. Try again!", e)
+		}
+	}
+}
+
+pub fn user_read_bool() -> bool {
+	loop {
+		let mut line = String::new();
+		match io::stdin().read_line(&mut line) {
+			Ok(_) => {
+				match line.trim_end().parse::<bool>() {
+					Ok(val) => return val,
+					Err(e) => println!("{}. Enter \"true\" or \"false\".", e)
+				}
+			},
+			Err(e) => println!("{}. Try again", e)
+		}
+	}
+}
+
+pub fn user_read_hex(len: Option<u64>) -> String {
+	loop {
+		let mut line = String::new();
+		match io::stdin().read_line(&mut line) {
+			Ok(n) => {
+				if let Some(b) = len { 
+					if (n as u64 - 1) / 2 == b {
+						return line.trim_end().to_string()
+					} else {
+						println!("Expected {} bytes, got {} bytes. Try again!", b, n-1);
+					}
+				} else {
+					return line.trim_end().to_string()
+				}
+			},
+			Err(e) => println!("{}. Try again!", e)
+		}
 	}
 }
 

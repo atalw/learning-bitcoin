@@ -9,7 +9,7 @@ use crate::{txio, Transaction, Input, Output, ExtraInfo, Script, opcodes};
 
 impl Script {
 	pub fn asm(from: &str) -> String {
-		let data = txio::decode_hex(from).expect("uh oh");
+		let data = txio::decode_hex_be(from).expect("uh oh");
 		let len = data.len();
 		let mut stream = Cursor::new(data);
 
@@ -39,13 +39,16 @@ impl Script {
 }
 
 pub fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
-	let d: Value = serde_json::from_str(&data)?;
-	println!("raw transaction: {}", d["result"]);
+	let raw_tx = match serde_json::from_str::<Value>(&data) {
+		Ok(d) => d["result"].to_string(),
+		Err(_) => data
+	};
+	println!("raw transaction: {}", raw_tx);
 	println!("-------------------");
 
 	// convert to bytes
-	let result: Vec<u8> = txio::decode_hex(d["result"].as_str().unwrap())?;
-	let mut stream = Cursor::new(result.clone());
+	let result: Vec<u8> = txio::decode_hex_be(&raw_tx)?;
+	let mut stream = Cursor::new(result);
 
 	// version: always 4 bytes long
 	let version = txio::read_u32_le(&mut stream);
@@ -71,7 +74,7 @@ pub fn parse_raw_data(data: String) -> Result<Transaction, Box<dyn Error>> {
 		let sequence = txio::read_hex32_le(&mut stream);
 		let prevout = match get_prevout(&previous_tx, tx_index) {
 			Ok(output) => Some(output),
-			Err(e) => panic!("{}", e)
+			Err(_) => None
 		};
 
 		let input = Input {

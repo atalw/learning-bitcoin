@@ -1,4 +1,4 @@
-use std::io::{Write, Cursor, BufRead};
+use std::io::{Write, Cursor, BufRead, Seek, Read};
 /// Responsible for creating a transaction and making it Bitcoin readable
 /// Code help from https://github.com/rust-bitcoin/rust-bitcoin/blob/master/src/blockdata/script.rs
 
@@ -95,11 +95,35 @@ impl Transaction {
 	}
 
 	pub fn as_hex(self) -> String {
-		let mut raw_transaction = String::new();
-		let bytes: Vec<u8> = Vec::new();
-		let mut stream = Cursor::new(bytes);
-		txio::write_u32_le(&mut stream, 0);
-		"".to_owned()
+		let mut stream = Cursor::new(Vec::new());
+		txio::write_u32_le(&mut stream, self.version);
+		if let Some(flag) = self.flag {
+			txio::write_u16_le(&mut stream, flag);
+		}
+
+		txio::write_varint(&mut stream, self.in_counter);
+
+		for input in self.inputs {
+			txio::write_hex_le(&mut stream, input.previous_tx, false);
+			txio::write_u32_le(&mut stream, input.tx_index);
+			txio::write_hex_be(&mut stream, input.script_sig, true);
+			txio::write_hex_le(&mut stream, input.sequence, false);
+		}
+
+		txio::write_varint(&mut stream, self.out_counter);
+
+		for output in self.outputs {
+			txio::write_u64_le(&mut stream, output.amount);
+			txio::write_hex_be(&mut stream, output.script_pub_key, true);
+		}
+
+		txio::write_u32_le(&mut stream, self.lock_time);
+
+		stream.seek(io::SeekFrom::Start(0)).expect("Stream is empty?");
+
+		let mut raw_transaction: Vec<u8> = Vec::new();
+		stream.read_to_end(&mut raw_transaction).expect("Couldn't read till end");
+		txio::encode_hex_be(&raw_transaction)
 	}
 }
 
@@ -207,7 +231,7 @@ mod tests {
     use std::io::Cursor;
 	use std::io::prelude::*;
 
-    use crate::{Transaction, Input, Output};
+    use crate::{Transaction, Input, Output, deserialize};
 
     #[test]
     fn transaction_pre_segwit() {
@@ -231,7 +255,7 @@ mod tests {
 		stream.write(b"\n").expect("uh oh");
 		stream.write(b"1000").expect("uh oh");
 		stream.write(b"\n").expect("uh oh");
-		stream.write(b"scriptpubkey").expect("uh oh");
+		stream.write(b"abcdef").expect("uh oh");
 		stream.write(b"\n").expect("uh oh");
 		stream.write(b"0").expect("uh oh");
 		stream.write(b"\n").expect("uh oh");
@@ -248,7 +272,7 @@ mod tests {
 
 		let outputs = vec![Output {
 			amount: 1000,
-			script_pub_key: "scriptpubkey".to_string(),
+			script_pub_key: "abcdef".to_string(),
 		}];
 		
 		let transaction = Transaction {
@@ -264,5 +288,43 @@ mod tests {
 
 		assert_eq!(Transaction::new(stream), transaction);
     }
+
+	#[test]
+	fn transaction_pre_segwit_hex() {
+		let inputs = vec![Input {
+			previous_tx: "656aa8c5894c179b2745fa8a0fb68cb10688daa7389fd47900a055cc2526cb5d".to_string(),
+			tx_index: 0,
+			script_sig: "76a91488fed7b8154069b5d2ace12fa4b7f96ab73d59df88ac".to_string(),
+			sequence: "ffffffff".to_string(),
+			prevout: None,
+		}];
+
+		let outputs = vec![Output {
+			amount: 1000,
+			script_pub_key: "abcdef".to_string(),
+		}];
+		
+		let transaction = Transaction {
+			version: 1,
+			flag: None,
+			in_counter: 1, // varint -> byte size 1-9
+			inputs,
+			out_counter: 1, // varint -> byte size 1-9
+			outputs,
+			lock_time: 0,
+			extra_info: None,
+		};
+
+		let raw_transaction = transaction.clone().as_hex();
+		assert_eq!(raw_transaction, "01000000015dcb2625cc55a00079d49f38a7da8806b18cb60f8afa45279b174c89c5a86a65000000001976a91488fed7b8154069b5d2ace12fa4b7f96ab73d59df88acffffffff01e80300000000000003abcdef00000000".to_string());
+
+		// round trip
+		let tx = match deserialize::parse_raw_data(raw_transaction) {
+			Ok(t) => t,
+			Err(e) => panic!("{}", e)
+		};
+
+		assert_eq!(transaction, tx);
+	}
 }
 

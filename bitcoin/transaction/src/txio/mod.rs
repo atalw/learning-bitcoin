@@ -4,7 +4,15 @@ use std::num::ParseIntError;
 
 // ---- Conversions ----
 
-pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
+pub fn decode_hex_le(s: &str) -> Result<Vec<u8>, ParseIntError> {
+    (0..s.len())
+        .step_by(2)
+		.rev()
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+        .collect()
+}
+
+pub fn decode_hex_be(s: &str) -> Result<Vec<u8>, ParseIntError> {
     (0..s.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
@@ -211,14 +219,81 @@ where
     reader.read_line(line)
 }
 
-// write transaction to hex serializer 
-
-pub fn write_u32_le(stream: &mut Cursor<Vec<u8>>, val: u32) -> String {
+pub fn write_u16_le(stream: &mut Cursor<Vec<u8>>, val: u16) {
 	let bytes = val.to_le_bytes();
-	// match stream.write(bytes) {
-	//     Ok(
-	// }
-	encode_hex_le(&bytes)
+	match stream.write(&bytes) {
+		Ok(_) => {},
+		Err(e) => panic!("{}", e)
+	}
+}
+
+pub fn write_u16_be(stream: &mut Cursor<Vec<u8>>, val: u16) {
+	let bytes = val.to_be_bytes();
+	match stream.write(&bytes) {
+		Ok(_) => {},
+		Err(e) => panic!("{}", e)
+	}
+}
+
+pub fn write_u32_le(stream: &mut Cursor<Vec<u8>>, val: u32) {
+	let bytes = val.to_le_bytes();
+	match stream.write(&bytes) {
+		Ok(_) => {},
+		Err(e) => panic!("{}", e)
+	}
+}
+
+pub fn write_u64_le(stream: &mut Cursor<Vec<u8>>, val: u64) {
+	let bytes = val.to_le_bytes();
+	match stream.write(&bytes) {
+		Ok(_) => {},
+		Err(e) => panic!("{}", e)
+	}
+}
+
+pub fn write_hex_le(stream: &mut Cursor<Vec<u8>>, val: String, with_varint: bool) {
+	if with_varint { write_varint(stream, val.len() as u64 / 2) }
+	let bytes = decode_hex_le(&val).expect("Something wrong with the hex");
+	match stream.write(&bytes) {
+		Ok(_) => {},
+		Err(e) => panic!("{}", e)
+	}
+}
+
+pub fn write_hex_be(stream: &mut Cursor<Vec<u8>>, val: String, with_varint: bool) {
+	if with_varint { write_varint(stream, val.len() as u64 / 2) }
+	let bytes = decode_hex_be(&val).expect("Something wrong with the hex");
+	match stream.write(&bytes) {
+		Ok(_) => {},
+		Err(e) => panic!("{}", e)
+	}
+}
+
+pub fn write_varint(stream: &mut Cursor<Vec<u8>>, size: u64) {
+	let mut bytes: Vec<u8> = Vec::new();
+	if size < 253 {
+		bytes.push(size as u8);
+	} else if size < 0x100 {
+		bytes.push(253);
+		bytes.push(size as u8);
+	} else if size < 0x10000 {
+		bytes.push(254);
+		bytes.push((size % 0x100) as u8);
+		bytes.push((size / 0x100) as u8);
+	} else if size < 0x100000000 {
+		bytes.push(255);
+		bytes.push((size % 0x100) as u8);
+		bytes.push(((size / 0x100) % 0x100) as u8);
+		bytes.push(((size % 0x10000) % 0x100) as u8);
+		bytes.push((size / 0x1000000) as u8);
+	} else {
+		panic!()
+	}
+
+	match stream.write(&bytes) {
+		Ok(_) => {},
+		Err(e) => panic!("{}", e)
+	}
 }
 
 // sometimes can't do i32::from_le_bytes because from_le_bytes requires a 4 byte input

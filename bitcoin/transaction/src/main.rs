@@ -7,7 +7,7 @@ mod deserialize;
 mod txio;
 mod opcodes;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Transaction {
 	version: u32,
 	flag: Option<u16>,
@@ -50,8 +50,8 @@ pub struct Script(Box<[u8]>);
 
 fn main() {
 
-	// let transaction = decode_raw_transactions();
-	// println!("{:#?}", transaction);
+	let transaction = decode_raw_transactions();
+	println!("{:#?}", transaction);
 
 	// let script = create_p2sh_scriptpubkey();
 	// println!("script: {:02x?}", script);
@@ -59,9 +59,9 @@ fn main() {
 	// let script = decode_script();
 	// println!("{:#?}", script);
 	
-	let transaction = Transaction::new(io::stdin().lock());
-	println!("{:#?}", transaction);
-	println!("{:#?}", transaction.as_hex());
+	// let transaction = Transaction::new(io::stdin().lock());
+	// println!("{:#?}", transaction);
+	// println!("{:#?}", transaction.as_hex());
 }
 
 fn create_p2sh_scriptpubkey() -> Script {

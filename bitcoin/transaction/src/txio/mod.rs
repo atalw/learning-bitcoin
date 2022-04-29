@@ -7,7 +7,9 @@ use crate::script::{ScriptBuilder, Script};
 
 // ---- Conversions ----
 
-pub fn decode_hex_le(s: &str) -> Result<Vec<u8>, ParseIntError> {
+// Discussion on Box<[u8]> vs Box<[u8]>
+// https://github.com/ipld/libipld/issues/36
+pub fn decode_hex_le(s: &str) -> Result<Box<[u8]>, ParseIntError> {
 	(0..s.len())
 		.step_by(2)
 		.rev()
@@ -16,7 +18,7 @@ pub fn decode_hex_le(s: &str) -> Result<Vec<u8>, ParseIntError> {
 }
 
 /// Read a hex string into bytes
-pub fn decode_hex_be(s: &str) -> Result<Vec<u8>, ParseIntError> {
+pub fn decode_hex_be(s: &str) -> Result<Box<[u8]>, ParseIntError> {
 	(0..s.len())
 		.step_by(2)
 		.map(|i| u8::from_str_radix(&s[i..i + 2], 16))
@@ -54,7 +56,7 @@ pub fn encode_hex_be(bytes: &[u8]) -> String {
  * ff -> 0000 0000 0000 0000 (255 + 8 bytes)
  * check bitcoin/src/serialize.h file
 */
-pub fn read_compact_size(stream: &mut Cursor<Vec<u8>>) -> u64 {
+pub fn read_compact_size(stream: &mut Cursor<Box<[u8]>>) -> u64 {
 	let  varint_size: u8 = read_u8_le(stream);
 	let size: u64;
 
@@ -77,7 +79,7 @@ pub fn read_compact_size(stream: &mut Cursor<Vec<u8>>) -> u64 {
 	size
 }
 
-pub fn read_u8_le(stream: &mut Cursor<Vec<u8>>) -> u8 {
+pub fn read_u8_le(stream: &mut Cursor<Box<[u8]>>) -> u8 {
 	let mut bytes = [0; 1];
 	match stream.read(&mut bytes) {
 		Ok(_) => u8::from_le_bytes(bytes),
@@ -85,14 +87,14 @@ pub fn read_u8_le(stream: &mut Cursor<Vec<u8>>) -> u8 {
 	}
 }
 
-pub fn read_u16_le(stream: &mut Cursor<Vec<u8>>) -> u16 {
+pub fn read_u16_le(stream: &mut Cursor<Box<[u8]>>) -> u16 {
 	let mut bytes = [0; 2];
 	match stream.read(&mut bytes) {
 		Ok(_) => u16::from_le_bytes(bytes),
 		Err(e) => panic!("{}", e)
 	}
 }
-pub fn read_u16_be(stream: &mut Cursor<Vec<u8>>) -> u16 {
+pub fn read_u16_be(stream: &mut Cursor<Box<[u8]>>) -> u16 {
 	let mut bytes = [0; 2];
 	match stream.read(&mut bytes) {
 		Ok(_) => u16::from_be_bytes(bytes),
@@ -100,7 +102,7 @@ pub fn read_u16_be(stream: &mut Cursor<Vec<u8>>) -> u16 {
 	}
 }
 
-pub fn read_u32_le(stream: &mut Cursor<Vec<u8>>) -> u32 {
+pub fn read_u32_le(stream: &mut Cursor<Box<[u8]>>) -> u32 {
 	let mut bytes = [0; 4];
 	match stream.read(&mut bytes) {
 		Ok(_) => u32::from_le_bytes(bytes),
@@ -108,7 +110,7 @@ pub fn read_u32_le(stream: &mut Cursor<Vec<u8>>) -> u32 {
 	}
 }
 
-pub fn read_u64_le(stream: &mut Cursor<Vec<u8>>) -> u64 {
+pub fn read_u64_le(stream: &mut Cursor<Box<[u8]>>) -> u64 {
 	let mut bytes = [0; 8];
 	match stream.read(&mut bytes) {
 		Ok(_) => u64::from_le_bytes(bytes),
@@ -116,7 +118,7 @@ pub fn read_u64_le(stream: &mut Cursor<Vec<u8>>) -> u64 {
 	}
 }
 
-pub fn read_hex32_le(stream: &mut Cursor<Vec<u8>>) -> String {
+pub fn read_hex32_le(stream: &mut Cursor<Box<[u8]>>) -> String {
 	let mut bytes = [0; 4];
 	match stream.read(&mut bytes) {
 		Ok(_) => encode_hex_le(&bytes),
@@ -124,7 +126,7 @@ pub fn read_hex32_le(stream: &mut Cursor<Vec<u8>>) -> String {
 	}
 }
 
-pub fn read_hex256_le(stream: &mut Cursor<Vec<u8>>) -> String {
+pub fn read_hex256_le(stream: &mut Cursor<Box<[u8]>>) -> String {
 	let mut bytes = [0; 32];
 	match stream.read(&mut bytes) {
 		Ok(_) => encode_hex_le(&bytes),
@@ -132,15 +134,15 @@ pub fn read_hex256_le(stream: &mut Cursor<Vec<u8>>) -> String {
 	}
 }
 
-pub fn read_hex_var_be(stream: &mut Cursor<Vec<u8>>, length: u64) -> String {
+pub fn read_hex_var_be(stream: &mut Cursor<Box<[u8]>>, length: u64) -> Box<[u8]> {
 	let mut bytes = vec![0; length as usize];
 	match stream.read(&mut bytes) {
-		Ok(_) => encode_hex_be(&bytes),
+		Ok(_) => decode_hex_be(&encode_hex_be(&bytes)).expect("Unable to read hex"),
 		Err(e) => panic!("{}", e)
 	}
 }
 
-pub fn unread(stream: &mut Cursor<Vec<u8>>, length: i64) {
+pub fn unread(stream: &mut Cursor<Box<[u8]>>, length: i64) {
 	match stream.seek(SeekFrom::Current(length)) {
 		Ok(_) => (),
 		Err(e) => panic!("{}", e)
@@ -216,6 +218,17 @@ pub fn user_read_hex<R: BufRead>(reader: R, len: Option<u64>) -> String {
 	}
 }
 
+/// Used for reach script_pub_key and script_sig
+pub fn user_read_script<R: BufRead>(reader: R) -> Script {
+	let mut line = String::new();
+	match read_line(reader, &mut line) {
+		Ok(_) => {
+			Script(decode_hex_be(line.trim_end()).expect("Is the script_pub_key/script_sig correct?"))
+		},
+		Err(e) => panic!("{}", e)
+	}
+}
+
 pub fn user_read_asm_script<R: BufRead>(reader: R) -> Script {
 	let mut line = String::new();
 	match read_line(reader, &mut line) {
@@ -236,16 +249,6 @@ fn parse_asm_script(script_asm: String) -> Script {
 	let script = script_builder.into_script();
 	println!("Parsed script is: {}", script.as_asm());
 	script
-}
-
-pub fn user_read_public_key<R: BufRead>(reader: R) -> Vec<u8> {
-	let mut line = String::new();
-	match read_line(reader, &mut line) {
-		Ok(_) => {
-			decode_hex_be(line.trim_end()).expect("Is the public key correct?")
-		},
-		Err(e) => panic!("{}", e)
-	}
 }
 
 fn read_line<R>(mut reader: R, line: &mut String) -> Result<usize, Error>

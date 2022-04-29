@@ -2,12 +2,13 @@
 
 use std::error::Error;
 use std::io::{BufRead, Cursor, self, Seek, Read};
+use crate::script::Script;
 use crate::{Serialize, txio, Deserialize};
 use serde_json::Value;
 use derivative::Derivative;
 
 #[derive(Derivative)]
-#[derivative(Debug, Clone, PartialEq)]
+#[derivative(Debug, PartialEq)]
 pub struct Transaction {
 	version: u32,
 	flag: Option<u16>,
@@ -21,14 +22,14 @@ pub struct Transaction {
 }
 
 #[derive(Derivative)]
-#[derivative(Debug, Clone, PartialEq)]
+#[derivative(Debug, PartialEq)]
 pub struct Input {
 	/// Previous transaction hash. Doubled SHA256-hashed.
 	previous_tx: String,
 	/// Index of an output
 	tx_index: u32,
 	/// <unlocking script> <locking script>
-	script_sig: String,
+	script_sig: Script,
 	/// Relative locktime of the input
 	sequence: String,
 	#[derivative(PartialEq="ignore")]
@@ -36,10 +37,10 @@ pub struct Input {
 	prevout: Option<Output>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Output {
 	amount: u64,
-	script_pub_key: String,
+	script_pub_key: Script,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -68,7 +69,7 @@ impl Serialize for Transaction {
 			println!("---- Output index:");
 			let tx_index = txio::user_read_u32(&mut reader);
 			println!("---- Script_sig:");
-			let script_sig = txio::user_read_hex(&mut reader, None);
+			let script_sig = txio::user_read_script(&mut reader);
 			println!("---- Sequence (in hex):");
 			let sequence = txio::user_read_hex(&mut reader, Some(4));
 			let prevout = None;
@@ -90,7 +91,7 @@ impl Serialize for Transaction {
 			println!("---- Amount (in sats):");
 			let amount = txio::user_read_u64(&mut reader);
 			println!("---- Script pubkey:");
-			let script_pub_key = txio::user_read_hex(&mut reader, None);
+			let script_pub_key = txio::user_read_script(&mut reader);
 
 			outputs.push(Output {
 				amount,
@@ -126,7 +127,7 @@ impl Serialize for Transaction {
 		for input in &self.inputs {
 			txio::write_hex_le(&mut stream, input.previous_tx.clone(), false);
 			txio::write_u32_le(&mut stream, input.tx_index);
-			txio::write_hex_be(&mut stream, input.script_sig.clone(), true);
+			txio::write_hex_be(&mut stream, input.script_sig.as_hex(), true);
 			txio::write_hex_le(&mut stream, input.sequence.clone(), false);
 		}
 
@@ -134,7 +135,7 @@ impl Serialize for Transaction {
 
 		for output in &self.outputs {
 			txio::write_u64_le(&mut stream, output.amount);
-			txio::write_hex_be(&mut stream, output.script_pub_key.clone(), true);
+			txio::write_hex_be(&mut stream, output.script_pub_key.as_hex(), true);
 		}
 
 		txio::write_u32_le(&mut stream, self.lock_time);
@@ -164,7 +165,7 @@ impl Deserialize for Transaction {
 		println!("-------------------");
 
 		// convert to bytes
-		let result: Vec<u8> = txio::decode_hex_be(&raw_transaction)?;
+		let result: Box<[u8]> = txio::decode_hex_be(&raw_transaction)?;
 		let mut stream = Cursor::new(result);
 
 		// version: always 4 bytes long
@@ -187,7 +188,7 @@ impl Deserialize for Transaction {
 			let tx_index = txio::read_u32_le(&mut stream);
 			// question: why are there n extra bytes in script_sig? in/out_script_length specifies it
 			let in_script_length = txio::read_compact_size(&mut stream);
-			let script_sig= txio::read_hex_var_be(&mut stream, in_script_length);
+			let script_sig= Script(txio::read_hex_var_be(&mut stream, in_script_length));
 			let sequence = txio::read_hex32_le(&mut stream);
 			let prevout = match get_prevout(&previous_tx, tx_index) {
 				Ok(output) => Some(output),
@@ -215,7 +216,7 @@ impl Deserialize for Transaction {
 
 			let amount = txio::read_u64_le(&mut stream);
 			let out_script_length = txio::read_compact_size(&mut stream);
-			let script_pub_key = txio::read_hex_var_be(&mut stream, out_script_length);
+			let script_pub_key = Script(txio::read_hex_var_be(&mut stream, out_script_length));
 
 			let output = Output {
 				amount,
@@ -235,7 +236,7 @@ impl Deserialize for Transaction {
 
 		if inputs.iter().all(|x| x.prevout.is_some()) {
 			// not sure if the x.prevout.to_owned().unwrap() is the best solution here.
-			let total_input_amount = inputs.iter().fold(0, |acc, x| acc + x.prevout.to_owned().unwrap().amount);
+			let total_input_amount = inputs.iter().fold(0, |acc, x| acc + x.prevout.as_ref().unwrap().amount);
 			let total_output_amount = outputs.iter().fold(0, |acc, x| acc + x.amount);
 			assert!(total_output_amount <= total_input_amount);
 			let miner_fee = total_input_amount - total_output_amount;
@@ -273,9 +274,14 @@ fn get_prevout(previous_tx: &str, index: u32) -> Result<Output, Box<dyn Error>> 
 
 	let prevouts = response["vout"].as_array().unwrap();
 
+	let amount = prevouts[index as usize]["value"].as_u64().unwrap_or(0); 
+
+	let hex = prevouts[index as usize]["scriptpubkey"].to_string().replace("\"", "");
+	let script_pub_key = Script(txio::decode_hex_be(&hex).expect("Is the script_pub_key correct?"));
+
 	let output = Output {
-		amount: prevouts[index as usize]["value"].as_u64().unwrap_or(0),
-		script_pub_key: prevouts[index as usize]["scriptpubkey"].to_string().replace("\"", ""),
+		amount,
+		script_pub_key,
 	};
 
 	Ok(output)
@@ -287,6 +293,7 @@ mod tests {
 	use std::io::prelude::*;
 	use crate::{Serialize, Deserialize};
 	use crate::transaction::{Input, Output, Transaction};
+	use crate::Script;
 
     #[test]
     fn encode_transaction_pre_segwit() {
@@ -320,14 +327,14 @@ mod tests {
 		let inputs = vec![Input {
 			previous_tx: "656aa8c5894c179b2745fa8a0fb68cb10688daa7389fd47900a055cc2526cb5d".to_string(),
 			tx_index: 0,
-			script_sig: "76a91488fed7b8154069b5d2ace12fa4b7f96ab73d59df88ac".to_string(),
+			script_sig: Script::from("76a91488fed7b8154069b5d2ace12fa4b7f96ab73d59df88ac"),
 			sequence: "ffffffff".to_string(),
 			prevout: None,
 		}];
 
 		let outputs = vec![Output {
 			amount: 1000,
-			script_pub_key: "abcdef".to_string(),
+			script_pub_key: Script::from("abcdef"),
 		}];
 		
 		let transaction = Transaction {
@@ -349,14 +356,14 @@ mod tests {
 		let inputs = vec![Input {
 			previous_tx: "656aa8c5894c179b2745fa8a0fb68cb10688daa7389fd47900a055cc2526cb5d".to_string(),
 			tx_index: 0,
-			script_sig: "76a91488fed7b8154069b5d2ace12fa4b7f96ab73d59df88ac".to_string(),
+			script_sig: Script::from("76a91488fed7b8154069b5d2ace12fa4b7f96ab73d59df88ac"),
 			sequence: "ffffffff".to_string(),
 			prevout: None,
 		}];
 
 		let outputs = vec![Output {
 			amount: 1000,
-			script_pub_key: "abcdef".to_string(),
+			script_pub_key: Script::from("abcdef"),
 		}];
 		
 		let transaction = Transaction {
@@ -393,7 +400,7 @@ mod tests {
 		let inputs = vec![Input {
 			previous_tx: "0437cd7f8525ceed2324359c2d0ba26006d92d856a9c20fa0241106ee5a597c9".to_string(),
 			tx_index: 0,
-			script_sig: "47304402204e45e16932b8af514961a1d3a1a25fdf3f4f7732e9d624c6c61548ab5fb8cd410220181522ec8eca07de4860a4acdd12909d831cc56cbbac4622082221a8768d1d0901".to_string(),
+			script_sig: Script::from("47304402204e45e16932b8af514961a1d3a1a25fdf3f4f7732e9d624c6c61548ab5fb8cd410220181522ec8eca07de4860a4acdd12909d831cc56cbbac4622082221a8768d1d0901"),
 			sequence: "ffffffff".to_string(),
 			prevout: None,
 		}];
@@ -401,11 +408,11 @@ mod tests {
 		let outputs = vec![
 			Output {
 				amount: 1000000000,
-				script_pub_key: "4104ae1a62fe09c5f51b13905f07f06b99a2f7159b2225f374cd378d71302fa28414e7aab37397f554a7df5f142c21c1b7303b8a0626f1baded5c72a704f7e6cd84cac".to_string(),
+				script_pub_key: Script::from("4104ae1a62fe09c5f51b13905f07f06b99a2f7159b2225f374cd378d71302fa28414e7aab37397f554a7df5f142c21c1b7303b8a0626f1baded5c72a704f7e6cd84cac"),
 			},
 			Output {
 				amount: 4000000000,
-				script_pub_key: "410411db93e1dcdb8a016b49840f8c53bc1eb68a382e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac".to_string(),
+				script_pub_key: Script::from("410411db93e1dcdb8a016b49840f8c53bc1eb68a382e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac"),
 			}
 		];
 		
@@ -443,7 +450,7 @@ mod tests {
 		let inputs = vec![Input {
 			previous_tx: "889c2561c6caf5f31af96162b17b196cc88a81f04f5f4a9af9052529c4f71ae1".to_string(),
 			tx_index: 0,
-			script_sig: "473044022045c7199ffc8069a498135b7bb2678da16e8b5d49455b4a7ace755928c9339c7a022051cbf72024cf273444640f7b993b2bf3d329124b03e6744edaed5158a30e29b8012103fd9bc1e9803e739720e0f1c63e580a94656c7d0cab6cd083f0c0dfb221b90662".to_string(),
+			script_sig: Script::from("473044022045c7199ffc8069a498135b7bb2678da16e8b5d49455b4a7ace755928c9339c7a022051cbf72024cf273444640f7b993b2bf3d329124b03e6744edaed5158a30e29b8012103fd9bc1e9803e739720e0f1c63e580a94656c7d0cab6cd083f0c0dfb221b90662"),
 			sequence: "ffffffff".to_string(),
 			prevout: None,
 		}];
@@ -451,11 +458,11 @@ mod tests {
 		let outputs = vec![
 			Output {
 				amount: 1400000000000,
-				script_pub_key: "76a9143b9552116adcc2fbd74fad44a4da603a727c816e88ac".to_string(),
+				script_pub_key: Script::from("76a9143b9552116adcc2fbd74fad44a4da603a727c816e88ac")
 			},
 			Output {
 				amount: 1099994980000,
-				script_pub_key: "76a914f90ce447f14847e841d4d2ecc76299b5bc77166188ac".to_string(),
+				script_pub_key: Script::from("76a914f90ce447f14847e841d4d2ecc76299b5bc77166188ac"),
 			}
 		];
 		
@@ -496,7 +503,7 @@ mod tests {
 		let inputs = vec![Input {
 			previous_tx: "cc526c2f5d31894c27641469bfc751910aaa08202e038b0ec6f0a9f661d3ba6d".to_string(),
 			tx_index: 25,
-			script_sig: "0047304402204945c3e4f824d263bb22e117a12bfff741d996d594f07551c93e0fde77910d32022016c2b69daec51bd4afdd81bf90f76667dda515773b3da91174043fc7299acb5301473044022053c71a4730160b20e565cb669a44b793f42d2912e84d528cf203089abcb2874402203311303cfc36b91372e47d5fa0b22104e7c25bb5a8dcccd15c423620d5700304014c69522102047464f518269c6cba42b859d28e872ef8f6bb47d93e24d5c11ac6eca8a2845721029b48417598a2d2dab54ddddfca8e1a9c8d4967002180961f53a7748710c2176521036b1023b6c7ed689aaf3bc8ca9ee5c55da383ae0c44fc8b0fec91d6965dae5d5e53ae".to_string(),
+			script_sig: Script::from("0047304402204945c3e4f824d263bb22e117a12bfff741d996d594f07551c93e0fde77910d32022016c2b69daec51bd4afdd81bf90f76667dda515773b3da91174043fc7299acb5301473044022053c71a4730160b20e565cb669a44b793f42d2912e84d528cf203089abcb2874402203311303cfc36b91372e47d5fa0b22104e7c25bb5a8dcccd15c423620d5700304014c69522102047464f518269c6cba42b859d28e872ef8f6bb47d93e24d5c11ac6eca8a2845721029b48417598a2d2dab54ddddfca8e1a9c8d4967002180961f53a7748710c2176521036b1023b6c7ed689aaf3bc8ca9ee5c55da383ae0c44fc8b0fec91d6965dae5d5e53ae"),
 			sequence: "ffffffff".to_string(),
 			prevout: None,
 		}];
@@ -504,19 +511,19 @@ mod tests {
 		let outputs = vec![
 			Output {
 				amount: 1170000,
-				script_pub_key: "00141e129251311437eea493fce2a3644a5a1af8d407".to_string(),
+				script_pub_key: Script::from("00141e129251311437eea493fce2a3644a5a1af8d407"),
 			},
 			Output {
 				amount: 1930000,
-				script_pub_key: "76a9140ac4423b045a0c8ed5f4fb992256ed293a313ae088ac".to_string(),
+				script_pub_key: Script::from("76a9140ac4423b045a0c8ed5f4fb992256ed293a313ae088ac"),
 			},
 			Output {
 				amount: 10185620,
-				script_pub_key: "a914cd38af19a803de11ddcee3a45221ed9ac491404787".to_string(),
+				script_pub_key: Script::from("a914cd38af19a803de11ddcee3a45221ed9ac491404787"),
 			},
 			Output {
 				amount: 1519708769,
-				script_pub_key: "a9143572de0bb360f212ef8813a9e012f63a7035c9c987".to_string(),
+				script_pub_key: Script::from("a9143572de0bb360f212ef8813a9e012f63a7035c9c987"),
 			}
 		];
 		
@@ -559,7 +566,7 @@ mod tests {
 		let inputs = vec![Input {
 			previous_tx: "889c2561c6caf5f31af96162b17b196cc88a81f04f5f4a9af9052529c4f71ae1".to_string(),
 			tx_index: 0,
-			script_sig: "473044022045c7199ffc8069a498135b7bb2678da16e8b5d49455b4a7ace755928c9339c7a022051cbf72024cf273444640f7b993b2bf3d329124b03e6744edaed5158a30e29b8012103fd9bc1e9803e739720e0f1c63e580a94656c7d0cab6cd083f0c0dfb221b90662".to_string(),
+			script_sig: Script::from("473044022045c7199ffc8069a498135b7bb2678da16e8b5d49455b4a7ace755928c9339c7a022051cbf72024cf273444640f7b993b2bf3d329124b03e6744edaed5158a30e29b8012103fd9bc1e9803e739720e0f1c63e580a94656c7d0cab6cd083f0c0dfb221b90662"),
 			sequence: "ffffffff".to_string(),
 			prevout: None,
 		}];
@@ -567,11 +574,11 @@ mod tests {
 		let outputs = vec![
 			Output {
 				amount: 1400000000000,
-				script_pub_key: "76a9143b9552116adcc2fbd74fad44a4da603a727c816e88ac".to_string(),
+				script_pub_key: Script::from("76a9143b9552116adcc2fbd74fad44a4da603a727c816e88ac"),
 			},
 			Output {
 				amount: 1099994980000,
-				script_pub_key: "76a914f90ce447f14847e841d4d2ecc76299b5bc77166188ac".to_string(),
+				script_pub_key: Script::from("76a914f90ce447f14847e841d4d2ecc76299b5bc77166188ac"),
 			}
 		];
 		

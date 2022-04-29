@@ -4,7 +4,8 @@ use crate::{Serialize, opcodes, Deserialize, txio, hash};
 use std::fmt;
 
 // Why box? https://doc.rust-lang.org/book/ch15-01-box.html
-pub struct Script(Box<[u8]>);
+#[derive(PartialEq)]
+pub struct Script(pub Box<[u8]>);
 
 /// Build the script piece by piece
 pub struct ScriptBuilder(Vec<u8>);
@@ -24,8 +25,8 @@ impl Serialize for Script {
 			Script::new_p2sh(script.as_bytes())
 		} else if option == 2 {
 			println!("Enter the public key:");
-			let key = txio::user_read_public_key(&mut reader);
-			Script::new_p2pkh(&key)
+			let key = txio::user_read_script(&mut reader);
+			Script::new_p2pkh(&key.as_bytes())
 		} else {
 			todo!()
 		}
@@ -83,9 +84,9 @@ impl Deserialize for Script {
 				script_builder.push_size(size);
 			} else if opcode.code > opcodes::all::OP_PUSHBYTES_1.into_u8() && opcode.code <= opcodes::all::OP_PUSHBYTES_75.into_u8() {
 				let len = opcode.code;
-				let script = txio::read_hex_var_be(&mut stream, len as u64);
-				let script_hex = txio::decode_hex_be(&script).expect("script incorrect");
-				script_builder.push_script_hash(&script_hex);
+				let script = Script(txio::read_hex_var_be(&mut stream, len as u64));
+				// let script_hex = txio::decode_hex_be(&script).expect("script incorrect");
+				script_builder.push_script_hash(&script.as_bytes());
 			} else if opcode.code >= opcodes::all::OP_PUSHNUM_1.into_u8() && 
 				opcode.code <= opcodes::all::OP_PUSHNUM_15.into_u8() {
 					script_builder.push_opcode(opcode);
@@ -116,8 +117,8 @@ impl Deserialize for Script {
 				parsed.push_str(" ");
 			} else if opcode.code > opcodes::all::OP_PUSHBYTES_1.into_u8() && opcode.code <= opcodes::all::OP_PUSHBYTES_75.into_u8() {
 				let len = opcode.code;
-				let script = txio::read_hex_var_be(&mut stream, len as u64);
-				parsed.push_str(&script);
+				let script = Script(txio::read_hex_var_be(&mut stream, len as u64));
+				parsed.push_str(&script.as_hex());
 				parsed.push_str(" ");
 			} else if opcode.code >= opcodes::all::OP_PUSHNUM_1.into_u8() && 
 				opcode.code <= opcodes::all::OP_PUSHNUM_15.into_u8() {
@@ -130,6 +131,16 @@ impl Deserialize for Script {
 		}
 
 		parsed.trim_end().to_string()
+	}
+}
+
+impl From<&str> for Script {
+	fn from(s: &str) -> Script {
+		let stream = Cursor::new(s.as_bytes());
+		match Script::decode_raw(stream) {
+			Ok(script) => script,
+			Err(e) => panic!("{}", e)
+		}
 	}
 }
 

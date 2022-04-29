@@ -24,7 +24,6 @@ pub trait Deserialize {
 	fn as_asm(&self) -> String { "Not supported".to_string() } // Default implementation
 }
 
-// accept user input to choose what the code should do
 fn main() {
 	println!("What would you like to do?");
 	println!("1. Create  new transaction");
@@ -36,18 +35,22 @@ fn main() {
 
 	if option == 1 {
 		let transaction = Transaction::new(io::stdin().lock());
+		println!();
 		println!("{:#?}", transaction);
-		println!("{:#?}", transaction.as_hex());
+		println!("Raw transaction {:#?}", transaction.as_hex());
 	} else if option == 2 {
 		let script = Script::new(io::stdin().lock());
+		println!();
 		println!("ScriptPubKey asm: {:#?}", script.as_asm());
 		println!("ScriptPubKey hex: {:#?}", script.as_hex());
 	} else if option == 3 {
 		let transaction = Transaction::decode_raw(io::stdin().lock());
+		println!();
 		println!("{:#?}", transaction);
 	} else if option == 4 {
 		// let script = decode_script();
 		let script = Script::decode_raw(io::stdin().lock());
+		println!();
 		println!("{:#?}", script);
 	} else {
 		todo!()

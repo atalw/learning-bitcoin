@@ -1,34 +1,29 @@
 #![allow(dead_code)]
 
 use std::error::Error;
-use std::io::BufRead;
+use std::io::{BufRead, self};
 
+use script::Script;
 use transaction::Transaction;
 
-mod serialize;
-mod deserialize;
 mod txio;
 mod opcodes;
 mod transaction;
+mod script;
+mod hash;
 
 pub trait Serialize {
-	/// Create new transaction from arguments provided by user
+	/// Create new type T from arguments provided by user
 	fn new<R: BufRead>(reader: R) -> Self;
-	fn as_hex(self) -> String;
+	fn as_hex(&self) -> String;
 }
 
 pub trait Deserialize {
 	fn from_raw(data: String) -> Result<Self, Box<dyn Error>> where Self: Sized;
-	// fn as_hex() -> String;
-	fn as_asm() -> String { "Not supported".to_string() } // Default implementation
+	fn as_asm(hex: String) -> String { "Not supported".to_string() } // Default implementation
 }
 
-
-// Why box? https://doc.rust-lang.org/book/ch15-01-box.html
-pub struct Script(Box<[u8]>);
-
 fn main() {
-
 	let transaction = decode_raw_transactions();
 	println!("{:#?}", transaction);
 
@@ -44,21 +39,20 @@ fn main() {
 }
 
 fn create_p2sh_scriptpubkey() -> Script {
-	let script_hash = create_script_hash();
-	Script::new_p2sh(&script_hash)
-	// serialize::Script::new_p2pkh(&script_hash)
+	// let script_hash = create_script_hash();
+	Script::new(io::stdin().lock())
 }
 
-fn create_script_hash() -> Vec<u8> {
-	// redeem script/original script
-	let bytes = b"this is a string";
-	serialize::create_hash160(bytes)
-}
+// fn create_script_hash() -> Vec<u8> {
+//     // redeem script/original script
+//     let bytes = b"this is a string";
+//     serialize::create_hash160(bytes)
+// }
 
 fn decode_script() -> String {
 	let script = "76a91414011f7254d96b819c76986c277d115efce6f7b58763ac67210394854aa6eab5b2a8122cc726e9dded053a2184d88256816826d6231c068d4a5b7c820120876475527c21030d417a46946384f88d5f3337267c5e579765875dc4daca813e21734b140639e752ae67a914b43e1b38138a41b37f7cd9a1d274bc63e3a9b5d188ac6868";
 
-	Script::asm(script)
+	Script::as_asm(script.to_string())
 	// match Script::new(script) {
 	//     Ok(s) => s,
 	//     Err(e) => panic!("{}", e)

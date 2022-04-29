@@ -1,3 +1,5 @@
+/// Code help from https://github.com/rust-bitcoin/rust-bitcoin/blob/master/src/blockdata/script.rs
+
 use std::error::Error;
 use std::io::{BufRead, Cursor, self, Seek, Read};
 use crate::{Serialize, txio, Deserialize};
@@ -40,6 +42,9 @@ pub struct ExtraInfo {
 	miner_fee: u64,
 	tx_size: u64,
 }
+
+/// Build a transaction piece by piece
+// struct TransactionBuilder(Vec<u8>);
 
 impl Serialize for Transaction {
 	fn new<R: BufRead>(mut reader: R) -> Self {
@@ -104,7 +109,7 @@ impl Serialize for Transaction {
 		}
 	}
 
-	fn as_hex(self) -> String {
+	fn as_hex(&self) -> String {
 		let mut stream = Cursor::new(Vec::new());
 		txio::write_u32_le(&mut stream, self.version);
 		if let Some(flag) = self.flag {
@@ -113,18 +118,18 @@ impl Serialize for Transaction {
 
 		txio::write_varint(&mut stream, self.in_counter);
 
-		for input in self.inputs {
-			txio::write_hex_le(&mut stream, input.previous_tx, false);
+		for input in &self.inputs {
+			txio::write_hex_le(&mut stream, input.previous_tx.clone(), false);
 			txio::write_u32_le(&mut stream, input.tx_index);
-			txio::write_hex_be(&mut stream, input.script_sig, true);
-			txio::write_hex_le(&mut stream, input.sequence, false);
+			txio::write_hex_be(&mut stream, input.script_sig.clone(), true);
+			txio::write_hex_le(&mut stream, input.sequence.clone(), false);
 		}
 
 		txio::write_varint(&mut stream, self.out_counter);
 
-		for output in self.outputs {
+		for output in &self.outputs {
 			txio::write_u64_le(&mut stream, output.amount);
-			txio::write_hex_be(&mut stream, output.script_pub_key, true);
+			txio::write_hex_be(&mut stream, output.script_pub_key.clone(), true);
 		}
 
 		txio::write_u32_le(&mut stream, self.lock_time);

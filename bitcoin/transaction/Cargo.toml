@@ -11,3 +11,4 @@ reqwest = { version = "0.11", features = ["blocking", "json"] }
 tokio = { version = "1", features = ["full"] }
 ripemd = "0.1.1"
 sha2 = "0.10.2"
+derivative = "2.2.0"

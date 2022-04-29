@@ -2,7 +2,7 @@ use std::fmt::write;
 use std::io::{Read, Cursor, Seek, SeekFrom, BufRead, Write, Error};
 use std::num::ParseIntError;
 
-use crate::{Deserialize, Serialize};
+use crate::Deserialize;
 use crate::script::{ScriptBuilder, Script};
 
 // ---- Conversions ----
@@ -219,7 +219,7 @@ pub fn user_read_hex<R: BufRead>(reader: R, len: Option<u64>) -> String {
 pub fn user_read_asm_script<R: BufRead>(reader: R) -> Script {
 	let mut line = String::new();
 	match read_line(reader, &mut line) {
-		Ok(n) => {
+		Ok(_) => {
 			parse_asm_script(line.trim_end().to_string())
 		},
 		Err(e) => panic!("{}", e)
@@ -236,6 +236,16 @@ fn parse_asm_script(script_asm: String) -> Script {
 	let script = script_builder.into_script();
 	println!("Parsed script is: {}", script.as_asm());
 	script
+}
+
+pub fn user_read_public_key<R: BufRead>(reader: R) -> Vec<u8> {
+	let mut line = String::new();
+	match read_line(reader, &mut line) {
+		Ok(_) => {
+			decode_hex_be(line.trim_end()).expect("Is the public key correct?")
+		},
+		Err(e) => panic!("{}", e)
+	}
 }
 
 fn read_line<R>(mut reader: R, line: &mut String) -> Result<usize, Error>

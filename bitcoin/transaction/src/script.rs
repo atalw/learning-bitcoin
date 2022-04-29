@@ -20,15 +20,13 @@ impl Serialize for Script {
 		if option == 1 {
 			println!("Enter the original script. I'll hash it for you:");
 			let script = txio::user_read_asm_script(&mut reader);
+			println!("Original script: {}", script.as_hex());
 			Script::new_p2sh(script.as_bytes())
 		} else if option == 2 {
 			println!("Enter the public key:");
-			// TODO: using shortcut rn
-			let key = txio::user_read_asm_script(&mut reader);
-			println!("pbkey {:?}", key);
-			Script::new_p2pkh(key.as_bytes())
-		} 
-		else {
+			let key = txio::user_read_public_key(&mut reader);
+			Script::new_p2pkh(&key)
+		} else {
 			todo!()
 		}
 	}
@@ -65,8 +63,11 @@ impl Script {
 }
 
 impl Deserialize for Script {
-	fn decode_raw(data: String) -> Result<Self, Box<dyn Error>> {
-		let data = txio::decode_hex_be(&data).expect("uho ho");
+	fn decode_raw<R: BufRead>(reader: R) -> Result<Self, Box<dyn Error>> {
+		println!("Enter a raw script hex");
+		let hex = txio::user_read_hex(reader, None);
+
+		let data = txio::decode_hex_be(&hex).expect("uho ho");
 		let len = data.len();
 		let mut stream = Cursor::new(data);
 
@@ -223,41 +224,68 @@ impl ScriptBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::Deserialize;
+    use std::io::Cursor;
+	use std::io::prelude::*;
+
+    use crate::{Deserialize, Serialize};
     use super::Script;
 
     #[test]
-	fn decode_script_asm_1() {
+	fn decode_script_1() {
 		let raw_script = "76a91414011f7254d96b819c76986c277d115efce6f7b58763ac67210394854aa6eab5b2a8122cc726e9dded053a2184d88256816826d6231c068d4a5b7c820120876475527c21030d417a46946384f88d5f3337267c5e579765875dc4daca813e21734b140639e752ae67a914b43e1b38138a41b37f7cd9a1d274bc63e3a9b5d188ac6868".to_string();
 
-		let script = match Script::decode_raw(raw_script) {
+		let mut stream = Cursor::new(Vec::new());
+
+		stream.write(raw_script.as_bytes()).expect("uh oh");
+		stream.write(b"\n").expect("uh oh");
+
+		stream.seek(std::io::SeekFrom::Start(0)).expect("unable to seek");
+
+		let script = match Script::decode_raw(stream) {
 			Ok(s) => s,
 			Err(e) => panic!("{}", e)
 		};
 
+		assert_eq!(script.as_hex(), raw_script);
 		assert_eq!(script.as_asm(), "OP_DUP OP_HASH160 14011f7254d96b819c76986c277d115efce6f7b5 OP_EQUAL OP_IF OP_CHECKSIG OP_ELSE 0394854aa6eab5b2a8122cc726e9dded053a2184d88256816826d6231c068d4a5b OP_SWAP OP_SIZE 32 OP_EQUAL OP_NOTIF OP_DROP 2 OP_SWAP 030d417a46946384f88d5f3337267c5e579765875dc4daca813e21734b140639e7 2 OP_CHECKMULTISIG OP_ELSE OP_HASH160 b43e1b38138a41b37f7cd9a1d274bc63e3a9b5d1 OP_EQUALVERIFY OP_CHECKSIG OP_ENDIF OP_ENDIF".to_string())
 	}
 
     #[test]
-	fn decode_script_asm_2() {
+	fn decode_script_2() {
 		let raw_script = "a820affb7035b385c7e8608d209498cd85c60eddadf4e2e50356f601289198219e7387".to_string();
 
-		let script = match Script::decode_raw(raw_script) {
+		let mut stream = Cursor::new(Vec::new());
+
+		stream.write(raw_script.as_bytes()).expect("uh oh");
+		stream.write(b"\n").expect("uh oh");
+
+		stream.seek(std::io::SeekFrom::Start(0)).expect("unable to seek");
+
+		let script = match Script::decode_raw(stream) {
 			Ok(s) => s,
 			Err(e) => panic!("{}", e)
 		};
 
+		assert_eq!(script.as_hex(), raw_script);
 		assert_eq!(script.as_asm(), "OP_SHA256 affb7035b385c7e8608d209498cd85c60eddadf4e2e50356f601289198219e73 OP_EQUAL".to_string())
 	}
 
-	fn decode_script_asm_3() {
+	fn decode_script_3() {
 		let raw_script = "5121022afc20bf379bc96a2f4e9e63ffceb8652b2b6a097f63fbee6ecec2a49a48010e2103a767c7221e9f15f870f1ad9311f5ab937d79fcaeee15bb2c722bca515581b4c052ae".to_string();
 
-		let script = match Script::decode_raw(raw_script) {
+		let mut stream = Cursor::new(Vec::new());
+
+		stream.write(raw_script.as_bytes()).expect("uh oh");
+		stream.write(b"\n").expect("uh oh");
+
+		stream.seek(std::io::SeekFrom::Start(0)).expect("unable to seek");
+
+		let script = match Script::decode_raw(stream) {
 			Ok(s) => s,
 			Err(e) => panic!("{}", e)
 		};
 
+		assert_eq!(script.as_hex(), raw_script);
 		assert_eq!(script.as_asm(), "1 022afc20bf379bc96a2f4e9e63ffceb8652b2b6a097f63fbee6ecec2a49a48010e 03a767c7221e9f15f870f1ad9311f5ab937d79fcaeee15bb2c722bca515581b4c0 2 OP_CHECKMULTISIG".to_string())
 	}
 }

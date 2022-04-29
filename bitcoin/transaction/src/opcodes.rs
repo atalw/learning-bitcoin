@@ -625,8 +625,6 @@ impl fmt::Debug for All {
 			All {code: x} if x >= all::OP_NOP1.code && x <= all::OP_NOP10.code => write!(f, "NOP{}", x - all::OP_NOP1.code + 1),
 			all::OP_INVALIDOPCODE => write!(f, "INVALIDOPCODE"),
 			all::OP_CHECKSIGADD => write!(f, "CHECKSIGADD"),
-			all::OP_INVALIDOPCODE => write!(f, "INVALIDOPCODE"),
-			all::OP_CHECKSIGADD => write!(f, "CHECKSIGADD"),
 			All {code: x} => write!(f, "RETURN_{}", x),
 		}
 	}
@@ -650,7 +648,7 @@ impl From<u8> for All {
 }
 
 impl From<&str> for All {
-    fn from(s: &str) -> All {
+	fn from(s: &str) -> All {
 		match s {
 			"OP_PUSHDATA1" => all::OP_PUSHDATA1,
 			"OP_PUSHDATA2" => all::OP_PUSHDATA2,
@@ -778,8 +776,6 @@ impl From<&str> for All {
 			"OP_NOP8" => all::OP_NOP8,
 			"OP_NOP9" => all::OP_NOP9,
 			"OP_NOP10" => all::OP_NOP10,
-			"OP_INVALIDOPCODE" => all::OP_INVALIDOPCODE,
-			"OP_CHECKSIGADD" => all::OP_CHECKSIGADD,
 			"OP_INVALIDOPCODE" => all::OP_INVALIDOPCODE,
 			"OP_CHECKSIGADD" => all::OP_CHECKSIGADD,
 			_ => all::OP_INVALIDOPCODE

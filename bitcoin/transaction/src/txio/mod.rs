@@ -298,4 +298,3 @@ pub fn write_varint(stream: &mut Cursor<Vec<u8>>, size: u64) {
 
 // sometimes can't do i32::from_le_bytes because from_le_bytes requires a 4 byte input
 // can convert 2 bytes to 4 bytes: https://dev.to/wayofthepie/three-bytes-to-an-integer-13g5
-

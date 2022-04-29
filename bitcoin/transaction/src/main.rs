@@ -19,23 +19,24 @@ pub trait Serialize {
 }
 
 pub trait Deserialize {
-	fn from_raw(data: String) -> Result<Self, Box<dyn Error>> where Self: Sized;
-	fn as_asm(hex: String) -> String { "Not supported".to_string() } // Default implementation
+	fn decode_raw(data: String) -> Result<Self, Box<dyn Error>> where Self: Sized;
+	fn as_asm(&self) -> String { "Not supported".to_string() } // Default implementation
 }
 
+// accept user input to choose what the code should do
 fn main() {
-	let transaction = decode_raw_transactions();
-	println!("{:#?}", transaction);
+	// let transaction = decode_raw_transactions();
+	// println!("{:#?}", transaction);
 
-	// let script = create_p2sh_scriptpubkey();
-	// println!("script: {:02x?}", script);
-
-	// let script = decode_script();
-	// println!("{:#?}", script);
-	
 	// let transaction = Transaction::new(io::stdin().lock());
 	// println!("{:#?}", transaction);
 	// println!("{:#?}", transaction.as_hex());
+	
+	let script = decode_script();
+	println!("{:#?}", script);
+
+	// let script = Script::new(io::stdin().lock());
+	// println!("{:#?}", script);
 }
 
 fn create_p2sh_scriptpubkey() -> Script {
@@ -49,14 +50,16 @@ fn create_p2sh_scriptpubkey() -> Script {
 //     serialize::create_hash160(bytes)
 // }
 
+// Update to accept user input later
 fn decode_script() -> String {
-	let script = "76a91414011f7254d96b819c76986c277d115efce6f7b58763ac67210394854aa6eab5b2a8122cc726e9dded053a2184d88256816826d6231c068d4a5b7c820120876475527c21030d417a46946384f88d5f3337267c5e579765875dc4daca813e21734b140639e752ae67a914b43e1b38138a41b37f7cd9a1d274bc63e3a9b5d188ac6868";
+	let raw_script = "76a91414011f7254d96b819c76986c277d115efce6f7b58763ac67210394854aa6eab5b2a8122cc726e9dded053a2184d88256816826d6231c068d4a5b7c820120876475527c21030d417a46946384f88d5f3337267c5e579765875dc4daca813e21734b140639e752ae67a914b43e1b38138a41b37f7cd9a1d274bc63e3a9b5d188ac6868".to_string();
 
-	Script::as_asm(script.to_string())
-	// match Script::new(script) {
-	//     Ok(s) => s,
-	//     Err(e) => panic!("{}", e)
-	// }
+	let script = match Script::decode_raw(raw_script) {
+		Ok(s) => s,
+		Err(e) => panic!("{}", e)
+	};
+
+	script.as_asm()
 }
 
 fn decode_raw_transactions() -> Transaction {
@@ -75,7 +78,7 @@ fn decode_raw_transactions() -> Transaction {
 	// let raw_transaction = _data_pre_segwit_two;
 	// let raw_transaction = _data_pre_segwit;
 
-	match Transaction::from_raw(raw_transaction) {
+	match Transaction::decode_raw(raw_transaction) {
 		Ok(transaction) => transaction,
 		Err(e) => panic!("{}", e)
 	}

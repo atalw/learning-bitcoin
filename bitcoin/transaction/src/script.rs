@@ -1,41 +1,64 @@
 use std::error::Error;
 use std::io::{BufRead, Cursor};
-
-use crate::{Serialize, opcodes, Deserialize, txio};
+use crate::{Serialize, opcodes, Deserialize, txio, hash};
 use std::fmt;
-
 
 // Why box? https://doc.rust-lang.org/book/ch15-01-box.html
 pub struct Script(Box<[u8]>);
 
 /// Build the script piece by piece
-struct ScriptBuilder(Vec<u8>);
+pub struct ScriptBuilder(Vec<u8>);
 
 impl Serialize for Script {
-	fn new<R: BufRead>(reader: R) -> Self {
-		Script::new_p2sh(&[0; 32])
+	fn new<R: BufRead>(mut reader: R) -> Self {
+		println!("What type of script do you want to create?");
+		println!("1. P2SH");
+		println!("2. P2PKH");
+		println!("Enter option:");
+		let option = txio::user_read_u32(&mut reader);
+
+		if option == 1 {
+			println!("Enter the original script. I'll hash it for you:");
+			let script = txio::user_read_asm_script(&mut reader);
+			Script::new_p2sh(script.as_bytes())
+		} else if option == 2 {
+			println!("Enter the public key:");
+			// TODO: using shortcut rn
+			let key = txio::user_read_asm_script(&mut reader);
+			println!("pbkey {:?}", key);
+			Script::new_p2pkh(key.as_bytes())
+		} 
+		else {
+			todo!()
+		}
 	}
 
 	fn as_hex(&self) -> String {
 		format!("{:02x}", self)
 	}
+
+	fn as_bytes(&self) -> &[u8] {
+		&self.0
+	}
 }
 
 impl Script {
-	fn new_p2pkh(script_hash: &[u8]) -> Self {
+	fn new_p2pkh(public_key: &[u8]) -> Self {
+		let public_key_hash = hash::hash160(public_key);
 		let mut script_builder = ScriptBuilder::new();
 		script_builder.push_opcode(opcodes::all::OP_DUP);
 		script_builder.push_opcode(opcodes::all::OP_HASH160);
-		script_builder.push_script_hash(script_hash);
+		script_builder.push_script_hash(&public_key_hash);
 		script_builder.push_opcode(opcodes::all::OP_EQUALVERIFY);
 		script_builder.push_opcode(opcodes::all::OP_CHECKSIG);
 		script_builder.into_script()
 	}
 
-	fn new_p2sh(script_hash: &[u8]) -> Self {
+	fn new_p2sh(original_script: &[u8]) -> Self {
+		let script_hash = hash::hash160(original_script);
 		let mut script_builder = ScriptBuilder::new();
 		script_builder.push_opcode(opcodes::all::OP_HASH160);
-		script_builder.push_script_hash(script_hash);
+		script_builder.push_script_hash(&script_hash);
 		script_builder.push_opcode(opcodes::all::OP_EQUAL);
 		script_builder.into_script()
 	}
@@ -64,7 +87,6 @@ impl Deserialize for Script {
 				script_builder.push_script_hash(&script_hex);
 			} else if opcode.code >= opcodes::all::OP_PUSHNUM_1.into_u8() && 
 				opcode.code <= opcodes::all::OP_PUSHNUM_15.into_u8() {
-					// let num = 1 + opcode.code - opcodes::all::OP_PUSHNUM_1.code;
 					script_builder.push_opcode(opcode);
 			} else {
 				script_builder.push_opcode(opcode);
@@ -74,7 +96,7 @@ impl Deserialize for Script {
 		Ok(script_builder.into_script())
 	}
 
-	// I don't like that this code is repeated. How do I reuse?
+	// TODO: I don't like that this code is repeated. How do I reuse?
 	fn as_asm(&self) -> String { 
 		let data = txio::decode_hex_be(&self.as_hex()).expect("uho ho");
 		let len = data.len();
@@ -107,7 +129,6 @@ impl Deserialize for Script {
 		}
 
 		parsed.trim_end().to_string()
-
 	}
 }
 
@@ -131,12 +152,24 @@ impl fmt::LowerHex for Script {
 
 
 impl ScriptBuilder {
-	fn new() -> Self {
+	pub fn new() -> Self {
 		ScriptBuilder(vec![])	
 	}
 
-	fn into_script(&self) -> Script {
+	pub fn into_script(&self) -> Script {
 		Script(self.0.clone().into_boxed_slice())
+	}
+
+	pub fn push(&mut self, token: &str) {
+		let code = opcodes::All::from(token);
+
+		// TODO: Not the best idea but it works for now
+		if code == opcodes::all::OP_INVALIDOPCODE {
+			let hex = txio::decode_hex_be(token).expect("Is this a proper script hash?");
+			self.push_script_hash(&hex);
+		} else {
+			self.push_opcode(code);
+		}
 	}
 
 	fn push_opcode(&mut self, opcode: opcodes::All) {
@@ -167,6 +200,7 @@ impl ScriptBuilder {
 	 * ff -> 0000 0000 0000 0000 (255 + 8 bytes)
 	 * check bitcoin/src/serialize.h file
 	 */
+	// This code is repeated in txio
 	fn push_var_int(&mut self, n: u64) {
 		if n < opcodes::all::OP_PUSHDATA1.into_u8() as u64 {
 			self.0.push(n as u8);
@@ -193,7 +227,7 @@ mod tests {
     use super::Script;
 
     #[test]
-	fn decode_script_asm() {
+	fn decode_script_asm_1() {
 		let raw_script = "76a91414011f7254d96b819c76986c277d115efce6f7b58763ac67210394854aa6eab5b2a8122cc726e9dded053a2184d88256816826d6231c068d4a5b7c820120876475527c21030d417a46946384f88d5f3337267c5e579765875dc4daca813e21734b140639e752ae67a914b43e1b38138a41b37f7cd9a1d274bc63e3a9b5d188ac6868".to_string();
 
 		let script = match Script::decode_raw(raw_script) {
@@ -202,5 +236,28 @@ mod tests {
 		};
 
 		assert_eq!(script.as_asm(), "OP_DUP OP_HASH160 14011f7254d96b819c76986c277d115efce6f7b5 OP_EQUAL OP_IF OP_CHECKSIG OP_ELSE 0394854aa6eab5b2a8122cc726e9dded053a2184d88256816826d6231c068d4a5b OP_SWAP OP_SIZE 32 OP_EQUAL OP_NOTIF OP_DROP 2 OP_SWAP 030d417a46946384f88d5f3337267c5e579765875dc4daca813e21734b140639e7 2 OP_CHECKMULTISIG OP_ELSE OP_HASH160 b43e1b38138a41b37f7cd9a1d274bc63e3a9b5d1 OP_EQUALVERIFY OP_CHECKSIG OP_ENDIF OP_ENDIF".to_string())
+	}
+
+    #[test]
+	fn decode_script_asm_2() {
+		let raw_script = "a820affb7035b385c7e8608d209498cd85c60eddadf4e2e50356f601289198219e7387".to_string();
+
+		let script = match Script::decode_raw(raw_script) {
+			Ok(s) => s,
+			Err(e) => panic!("{}", e)
+		};
+
+		assert_eq!(script.as_asm(), "OP_SHA256 affb7035b385c7e8608d209498cd85c60eddadf4e2e50356f601289198219e73 OP_EQUAL".to_string())
+	}
+
+	fn decode_script_asm_3() {
+		let raw_script = "5121022afc20bf379bc96a2f4e9e63ffceb8652b2b6a097f63fbee6ecec2a49a48010e2103a767c7221e9f15f870f1ad9311f5ab937d79fcaeee15bb2c722bca515581b4c052ae".to_string();
+
+		let script = match Script::decode_raw(raw_script) {
+			Ok(s) => s,
+			Err(e) => panic!("{}", e)
+		};
+
+		assert_eq!(script.as_asm(), "1 022afc20bf379bc96a2f4e9e63ffceb8652b2b6a097f63fbee6ecec2a49a48010e 03a767c7221e9f15f870f1ad9311f5ab937d79fcaeee15bb2c722bca515581b4c0 2 OP_CHECKMULTISIG".to_string())
 	}
 }

@@ -2,6 +2,9 @@ use std::fmt::write;
 use std::io::{Read, Cursor, Seek, SeekFrom, BufRead, Write, Error};
 use std::num::ParseIntError;
 
+use crate::{Deserialize, Serialize};
+use crate::script::{ScriptBuilder, Script};
+
 // ---- Conversions ----
 
 pub fn decode_hex_le(s: &str) -> Result<Vec<u8>, ParseIntError> {
@@ -12,6 +15,7 @@ pub fn decode_hex_le(s: &str) -> Result<Vec<u8>, ParseIntError> {
 		.collect()
 }
 
+/// Read a hex string into bytes
 pub fn decode_hex_be(s: &str) -> Result<Vec<u8>, ParseIntError> {
 	(0..s.len())
 		.step_by(2)
@@ -144,7 +148,7 @@ pub fn unread(stream: &mut Cursor<Vec<u8>>, length: i64) {
 }
 
 // TODO: Can't figure out how to wrap read into a loop so that the user can enter the text again
-// and using Cursor for mock inputs.
+// incase of an error. The problem is when adding support for mock inputs using Cursor.
 pub fn user_read_u32<R: BufRead>(reader: R) -> u32 {
 	let mut line = String::new();
 	match read_line(reader, &mut line) {
@@ -210,6 +214,28 @@ pub fn user_read_hex<R: BufRead>(reader: R, len: Option<u64>) -> String {
 		},
 		Err(e) => panic!("{}", e)
 	}
+}
+
+pub fn user_read_asm_script<R: BufRead>(reader: R) -> Script {
+	let mut line = String::new();
+	match read_line(reader, &mut line) {
+		Ok(n) => {
+			parse_asm_script(line.trim_end().to_string())
+		},
+		Err(e) => panic!("{}", e)
+	}
+}
+
+fn parse_asm_script(script_asm: String) -> Script {
+	let tokens: Vec<&str> = script_asm.split(" ").collect();
+
+	let mut script_builder = ScriptBuilder::new();
+	for token in &tokens {
+		script_builder.push(token);
+	}
+	let script = script_builder.into_script();
+	println!("Parsed script is: {}", script.as_asm());
+	script
 }
 
 fn read_line<R>(mut reader: R, line: &mut String) -> Result<usize, Error>

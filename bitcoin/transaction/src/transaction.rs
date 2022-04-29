@@ -140,6 +140,10 @@ impl Serialize for Transaction {
 		stream.read_to_end(&mut raw_transaction).expect("Couldn't read till end");
 		txio::encode_hex_be(&raw_transaction)
 	}
+
+	fn as_bytes(&self) -> &[u8] {
+		todo!()
+	}
 }
 
 impl Deserialize for Transaction {

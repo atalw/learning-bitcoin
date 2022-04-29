@@ -16,6 +16,7 @@ pub trait Serialize {
 	/// Create new type T from arguments provided by user
 	fn new<R: BufRead>(reader: R) -> Self;
 	fn as_hex(&self) -> String;
+	fn as_bytes(&self) -> &[u8];
 }
 
 pub trait Deserialize {
@@ -32,11 +33,12 @@ fn main() {
 	// println!("{:#?}", transaction);
 	// println!("{:#?}", transaction.as_hex());
 	
-	let script = decode_script();
-	println!("{:#?}", script);
-
-	// let script = Script::new(io::stdin().lock());
+	// let script = decode_script();
 	// println!("{:#?}", script);
+
+	let script = Script::new(io::stdin().lock());
+	println!("Script asm: {:#?}", script);
+	println!("Script hex: {:#?}", script.as_hex());
 }
 
 fn create_p2sh_scriptpubkey() -> Script {

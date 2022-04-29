@@ -1,5 +1,5 @@
 use std::fmt::write;
-use std::io::{Read, Cursor, Seek, SeekFrom, self, BufRead, Write, Error};
+use std::io::{Read, Cursor, Seek, SeekFrom, BufRead, Write, Error};
 use std::num::ParseIntError;
 
 // ---- Conversions ----

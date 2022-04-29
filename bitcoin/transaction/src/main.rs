@@ -1,49 +1,28 @@
 #![allow(dead_code)]
 
-use std::io;
+use std::error::Error;
+use std::io::BufRead;
+
+use transaction::Transaction;
 
 mod serialize;
 mod deserialize;
 mod txio;
 mod opcodes;
+mod transaction;
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct Transaction {
-	version: u32,
-	flag: Option<u16>,
-	in_counter: u64, // varint -> byte size 1-9
-	inputs: Vec<Input>,
-	out_counter: u64, // varint -> byte size 1-9
-	outputs: Vec<Output>,
-	lock_time: u32,
-	extra_info: Option<ExtraInfo>,
+pub trait Serialize {
+	/// Create new transaction from arguments provided by user
+	fn new<R: BufRead>(reader: R) -> Self;
+	fn as_hex(self) -> String;
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Input {
-	/// Previous transaction hash. Doubled SHA256-hashed.
-	previous_tx: String,
-	/// Index of an output
-	tx_index: u32,
-	/// <unlocking script> <locking script>
-	script_sig: String,
-	/// Relative locktime of the input
-	sequence: String,
-	/// Previous output
-	prevout: Option<Output>,
+pub trait Deserialize {
+	fn from_raw(data: String) -> Result<Self, Box<dyn Error>> where Self: Sized;
+	// fn as_hex() -> String;
+	fn as_asm() -> String { "Not supported".to_string() } // Default implementation
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Output {
-	amount: u64,
-	script_pub_key: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ExtraInfo {
-	miner_fee: u64,
-	tx_size: u64,
-}
 
 // Why box? https://doc.rust-lang.org/book/ch15-01-box.html
 pub struct Script(Box<[u8]>);
@@ -102,7 +81,7 @@ fn decode_raw_transactions() -> Transaction {
 	// let raw_transaction = _data_pre_segwit_two;
 	// let raw_transaction = _data_pre_segwit;
 
-	match Transaction::from(raw_transaction) {
+	match Transaction::from_raw(raw_transaction) {
 		Ok(transaction) => transaction,
 		Err(e) => panic!("{}", e)
 	}

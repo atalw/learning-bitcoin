@@ -219,7 +219,7 @@ pub fn user_read_hex<R: BufRead>(reader: R, len: Option<u64>) -> String {
 }
 
 /// Used for reach script_pub_key and script_sig
-pub fn user_read_script<R: BufRead>(reader: R) -> Script {
+pub fn user_read_script_hex<R: BufRead>(reader: R) -> Script {
 	let mut line = String::new();
 	match read_line(reader, &mut line) {
 		Ok(_) => {
@@ -229,7 +229,7 @@ pub fn user_read_script<R: BufRead>(reader: R) -> Script {
 	}
 }
 
-pub fn user_read_asm_script<R: BufRead>(reader: R) -> Script {
+pub fn user_read_script_asm<R: BufRead>(reader: R) -> Script {
 	let mut line = String::new();
 	match read_line(reader, &mut line) {
 		Ok(_) => {

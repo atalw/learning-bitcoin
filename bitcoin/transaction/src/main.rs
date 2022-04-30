@@ -13,7 +13,6 @@ mod script;
 mod hash;
 
 pub trait Serialize {
-	/// Create new type T from arguments provided by user
 	fn new<R: BufRead>(reader: R) -> Self;
 	fn as_hex(&self) -> String;
 	fn as_bytes(&self) -> &[u8];
@@ -21,7 +20,7 @@ pub trait Serialize {
 
 pub trait Deserialize {
 	fn decode_raw<R: BufRead>(reader: R) -> Result<Self, Box<dyn Error>> where Self: Sized;
-	fn as_asm(&self) -> String { "Not supported".to_string() } // Default implementation
+	fn as_asm(&self) -> String { unimplemented!() }
 }
 
 fn main() {
@@ -41,8 +40,7 @@ fn main() {
 	} else if option == 2 {
 		let script = Script::new(io::stdin().lock());
 		println!();
-		println!("ScriptPubKey asm: {:#?}", script.as_asm());
-		println!("ScriptPubKey hex: {:#?}", script.as_hex());
+		println!("script_pub_key: {:#?}", script);
 	} else if option == 3 {
 		let transaction = Transaction::decode_raw(io::stdin().lock());
 		println!();

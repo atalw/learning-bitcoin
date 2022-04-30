@@ -15,18 +15,34 @@ impl Serialize for Script {
 		println!("What type of script do you want to create?");
 		println!("1. P2SH");
 		println!("2. P2PKH");
+		println!("3. Leave empty (00)");
+		println!("4. Custom (be careful)");
 		println!("Enter option:");
 		let option = txio::user_read_u32(&mut reader);
 
-		if option == 1 {
-			println!("Enter the original script. I'll hash it for you:");
-			let script = txio::user_read_asm_script(&mut reader);
+		if option == 1 { // p2sh script
+			println!("---- 1. Script hex");
+			println!("---- 2. Script asm");
+			let option = txio::user_read_u32(&mut reader);
+			let script: Script;
+			if option == 1 { // hex
+				println!("Enter the unhashed script hex:");
+				script = txio::user_read_script_hex(&mut reader);
+			} else if option == 2 { // asm
+				println!("---- Enter the script in assembly. I'll hash it for you:");
+				script = txio::user_read_script_asm(&mut reader);
+			} else { unimplemented!() }
 			println!("Original script: {}", script.as_hex());
 			Script::new_p2sh(script.as_bytes())
-		} else if option == 2 {
+		} else if option == 2 { // p2pkh script
 			println!("Enter the public key:");
-			let key = txio::user_read_script(&mut reader);
+			let key = txio::user_read_script_hex(&mut reader);
 			Script::new_p2pkh(&key.as_bytes())
+		} else if option == 3 { // empty, useful for signrawtransactionwithwallet
+			Script::from("00")
+		}  else if option == 4 { // custom script
+			let hex = txio::user_read_script_hex(&mut reader);
+			Script::from(hex)
 		} else {
 			todo!()
 		}
@@ -68,7 +84,7 @@ impl Deserialize for Script {
 		println!("Enter a raw script hex");
 		let hex = txio::user_read_hex(reader, None);
 
-		let data = txio::decode_hex_be(&hex).expect("uho ho");
+		let data = txio::decode_hex_be(&hex)?;
 		let len = data.len();
 		let mut stream = Cursor::new(data);
 
@@ -146,9 +162,13 @@ impl From<&str> for Script {
 
 impl fmt::Debug for Script {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		f.write_str("Script(")?;
-		write!(f, "{}", self.as_asm())?;
-		f.write_str(")")
+		f.write_str("{\n")?;
+		f.write_str("\tasm: ")?;
+		write!(f, "\"{}\"", self.as_asm())?;
+		f.write_str("\n")?;
+		f.write_str("\thex: ")?;
+		write!(f, "\"{}\"", self.as_hex())?;
+		f.write_str("\n}")
 	}
 }
 

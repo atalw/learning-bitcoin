@@ -28,12 +28,12 @@ pub struct Input {
 	previous_tx: String,
 	/// Index of an output
 	tx_index: u32,
-	/// <unlocking script> <locking script>
+	/// <signature> <original script>
 	script_sig: Script,
 	/// Relative locktime of the input
 	sequence: String,
-	#[derivative(PartialEq="ignore")]
 	/// Previous output
+	#[derivative(PartialEq="ignore")]
 	prevout: Option<Output>,
 }
 
@@ -69,7 +69,7 @@ impl Serialize for Transaction {
 			println!("---- Output index:");
 			let tx_index = txio::user_read_u32(&mut reader);
 			println!("---- Script_sig:");
-			let script_sig = txio::user_read_script(&mut reader);
+			let script_sig = Script::new(&mut reader);
 			println!("---- Sequence (in hex):");
 			let sequence = txio::user_read_hex(&mut reader, Some(4));
 			let prevout = None;
@@ -91,7 +91,7 @@ impl Serialize for Transaction {
 			println!("---- Amount (in sats):");
 			let amount = txio::user_read_u64(&mut reader);
 			println!("---- Script pubkey:");
-			let script_pub_key = txio::user_read_script(&mut reader);
+			let script_pub_key = Script::new(&mut reader);
 
 			outputs.push(Output {
 				amount,
@@ -275,9 +275,8 @@ fn get_prevout(previous_tx: &str, index: u32) -> Result<Output, Box<dyn Error>> 
 	let prevouts = response["vout"].as_array().unwrap();
 
 	let amount = prevouts[index as usize]["value"].as_u64().unwrap_or(0); 
-
 	let hex = prevouts[index as usize]["scriptpubkey"].to_string().replace("\"", "");
-	let script_pub_key = Script(txio::decode_hex_be(&hex).expect("Is the script_pub_key correct?"));
+	let script_pub_key = Script(txio::decode_hex_be(&hex)?);
 
 	let output = Output {
 		amount,
@@ -289,45 +288,51 @@ fn get_prevout(previous_tx: &str, index: u32) -> Result<Output, Box<dyn Error>> 
 
 #[cfg(test)]
 mod tests {
-	use std::io::Cursor;
+	use std::io::{Cursor, Error};
 	use std::io::prelude::*;
 	use crate::{Serialize, Deserialize};
 	use crate::transaction::{Input, Output, Transaction};
 	use crate::Script;
 
     #[test]
-    fn encode_transaction_pre_segwit() {
+    fn encode_transaction_pre_segwit() -> Result<(), Error> {
 		let mut stream = Cursor::new(Vec::new());
 
-		stream.write(b"1").expect("uh oh"); // version
-		stream.write(b"\n").expect("uh oh");
-		// stream.write(b"false").expect("uh oh"); // segwit flag
-		// stream.write(b"\n").expect("uh oh");
-		stream.write(b"1").expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
-		stream.write(b"656aa8c5894c179b2745fa8a0fb68cb10688daa7389fd47900a055cc2526cb5d").expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
-		stream.write(b"0").expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
-		stream.write(b"76a91488fed7b8154069b5d2ace12fa4b7f96ab73d59df88ac").expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
-		stream.write(b"ffffffff").expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
-		stream.write(b"1").expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
-		stream.write(b"1000").expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
-		stream.write(b"abcdef").expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
-		stream.write(b"0").expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
+		stream.write(b"1")?; // version
+		stream.write(b"\n")?;
+		// stream.write(b"false")?;
+		// stream.write(b"\n")?;
+		stream.write(b"1")?;
+		stream.write(b"\n")?;
+		stream.write(b"656aa8c5894c179b2745fa8a0fb68cb10688daa7389fd47900a055cc2526cb5d")?;
+		stream.write(b"\n")?;
+		stream.write(b"0")?;
+		stream.write(b"\n")?;
+		stream.write(b"1")?;
+		stream.write(b"\n")?;
+		stream.write(b"2")?;
+		stream.write(b"\n")?;
+		stream.write(b"OP_DUP OP_HASH160 88fed7b8154069b5d2ace12fa4b7f96ab73d59df OP_EQUALVERIFY OP_CHECKSIG")?;
+		stream.write(b"\n")?;
+		stream.write(b"ffffffff")?;
+		stream.write(b"\n")?;
+		stream.write(b"1")?;
+		stream.write(b"\n")?;
+		stream.write(b"1000")?;
+		stream.write(b"\n")?;
+		stream.write(b"4")?;
+		stream.write(b"\n")?;
+		stream.write(b"abcdef")?;
+		stream.write(b"\n")?;
+		stream.write(b"0")?;
+		stream.write(b"\n")?;
 
-		stream.seek(std::io::SeekFrom::Start(0)).expect("unable to seek");
+		stream.seek(std::io::SeekFrom::Start(0))?;
 
 		let inputs = vec![Input {
 			previous_tx: "656aa8c5894c179b2745fa8a0fb68cb10688daa7389fd47900a055cc2526cb5d".to_string(),
 			tx_index: 0,
-			script_sig: Script::from("76a91488fed7b8154069b5d2ace12fa4b7f96ab73d59df88ac"),
+			script_sig: Script::from("a91430fc33f7b86c02f3edb60ea373ca5f467cf507b787"),
 			sequence: "ffffffff".to_string(),
 			prevout: None,
 		}];
@@ -349,6 +354,7 @@ mod tests {
 		};
 
 		assert_eq!(Transaction::new(stream), transaction);
+		Ok(())
     }
 
 	#[test]

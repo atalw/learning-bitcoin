@@ -89,6 +89,7 @@ impl Deserialize for Script {
 		let mut stream = Cursor::new(data);
 
 		let mut script_builder = ScriptBuilder::new();
+		println!("$$$$$$$$$$$$$$$$$$$ len: {}", len);
 
 		while (stream.position() as usize) < len {
 			let b = txio::read_u8_le(&mut stream);

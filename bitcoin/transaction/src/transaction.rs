@@ -16,6 +16,7 @@ pub struct Transaction {
 	inputs: Vec<Input>,
 	out_counter: u64, // varint -> byte size 1-9
 	outputs: Vec<Output>,
+	witness_data: Option<Vec<WitnessStack>>,
 	lock_time: u32,
 	#[derivative(PartialEq="ignore")]
 	extra_info: Option<ExtraInfo>,
@@ -43,6 +44,9 @@ pub struct Output {
 	script_pub_key: Script,
 }
 
+#[derive(Debug, PartialEq)]
+pub struct WitnessStack(Vec<String>);
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtraInfo {
 	miner_fee: u64,
@@ -56,9 +60,8 @@ impl Serialize for Transaction {
 	fn new<R: BufRead>(mut reader: R) -> Self {
 		println!("1. Version? (enter 1 or 2): ");
 		let version = txio::user_read_u32(&mut reader);
-		// println!("2. Segwit? (enter true or false)");
-		// let flag = if txio::user_read_bool() { Some(1) } else { None };
-		let flag = None;
+		println!("2. Segwit? (enter true or false)");
+		let flag = if txio::user_read_bool(&mut reader) { Some(1) } else { None };
 		println!("2. Number of inputs?: ");
 		let in_counter = txio::user_read_u64(&mut reader);
 		let mut inputs = Vec::new();
@@ -110,6 +113,7 @@ impl Serialize for Transaction {
 			inputs,
 			out_counter,
 			outputs,
+			witness_data: None,
 			lock_time,
 			extra_info,
 		}
@@ -119,7 +123,7 @@ impl Serialize for Transaction {
 		let mut stream = Cursor::new(Vec::new());
 		txio::write_u32_le(&mut stream, self.version);
 		if let Some(flag) = self.flag {
-			txio::write_u16_le(&mut stream, flag);
+			txio::write_u16_be(&mut stream, flag);
 		}
 
 		txio::write_varint(&mut stream, self.in_counter);
@@ -136,6 +140,15 @@ impl Serialize for Transaction {
 		for output in &self.outputs {
 			txio::write_u64_le(&mut stream, output.amount);
 			txio::write_hex_be(&mut stream, output.script_pub_key.as_hex(), true);
+		}
+
+		if let Some(witness_data) = self.witness_data.as_ref() {
+			for witnesses in witness_data {
+				txio::write_varint(&mut stream, witnesses.0.len() as u64);
+				for w in &witnesses.0 {
+					txio::write_hex_be(&mut stream, w.to_string(), true)
+				}
+			}
 		}
 
 		txio::write_u32_le(&mut stream, self.lock_time);
@@ -180,6 +193,7 @@ impl Deserialize for Transaction {
 
 		// number of inputs
 		let in_counter = txio::read_compact_size(&mut stream);
+		assert_ne!(in_counter, 0);
 
 		let mut inputs: Vec<Input> = Vec::new();
 		println!("Number of inputs {} {}", in_counter, stream.position());
@@ -188,7 +202,12 @@ impl Deserialize for Transaction {
 			let tx_index = txio::read_u32_le(&mut stream);
 			// question: why are there n extra bytes in script_sig? in/out_script_length specifies it
 			let in_script_length = txio::read_compact_size(&mut stream);
-			let script_sig= Script(txio::read_hex_var_be(&mut stream, in_script_length));
+			let script_sig: Script;
+			if in_script_length == 0 {
+				script_sig = Script::from("00");
+			} else {
+				script_sig = Script(txio::read_hex_var_be(&mut stream, in_script_length));
+			}
 			let sequence = txio::read_hex32_le(&mut stream);
 			let prevout = match get_prevout(&previous_tx, tx_index) {
 				Ok(output) => Some(output),
@@ -213,7 +232,6 @@ impl Deserialize for Transaction {
 
 		let mut outputs: Vec<Output> = Vec::new();
 		for _ in 0..out_counter {
-
 			let amount = txio::read_u64_le(&mut stream);
 			let out_script_length = txio::read_compact_size(&mut stream);
 			let script_pub_key = Script(txio::read_hex_var_be(&mut stream, out_script_length));
@@ -227,7 +245,27 @@ impl Deserialize for Transaction {
 		}
 
 		// list of witnesses
-		if flag.is_some() {}
+		let witness_data: Option<Vec<WitnessStack>>;
+		if flag.is_some() {
+			let mut _witness_data = Vec::new();
+			// number of witnesses = number of inputs
+			for i in 0..in_counter {
+				// If a txin is not associated with any witness data, its corresponding witness 
+				// field is an exact 0x00, indicating that the number of witness stack items is zero.
+				if inputs[i as usize].script_sig == Script::from("00") { continue }
+				let mut stack = WitnessStack(Vec::new());
+				let stack_count = txio::read_compact_size(&mut stream);
+				for _ in 0..stack_count {
+					let length = txio::read_compact_size(&mut stream);
+					let witness = txio::encode_hex_be(&txio::read_hex_var_be(&mut stream, length));
+					stack.0.push(witness);
+				}
+				_witness_data.push(stack);
+			}
+			witness_data = Some(_witness_data);
+		} else {
+			witness_data = None;
+		}
 
 		// always 4 bytes long
 		let lock_time = txio::read_u32_le(&mut stream);
@@ -259,6 +297,7 @@ impl Deserialize for Transaction {
 			inputs,
 			out_counter,
 			outputs,
+			witness_data,
 			lock_time,
 			extra_info,
 		};
@@ -291,7 +330,7 @@ mod tests {
 	use std::io::{Cursor, Error};
 	use std::io::prelude::*;
 	use crate::{Serialize, Deserialize};
-	use crate::transaction::{Input, Output, Transaction};
+	use crate::transaction::{Input, Output, Transaction, WitnessStack};
 	use crate::Script;
 
     #[test]
@@ -300,8 +339,8 @@ mod tests {
 
 		stream.write(b"1")?; // version
 		stream.write(b"\n")?;
-		// stream.write(b"false")?;
-		// stream.write(b"\n")?;
+		stream.write(b"false")?;
+		stream.write(b"\n")?;
 		stream.write(b"1")?;
 		stream.write(b"\n")?;
 		stream.write(b"656aa8c5894c179b2745fa8a0fb68cb10688daa7389fd47900a055cc2526cb5d")?;
@@ -341,6 +380,8 @@ mod tests {
 			amount: 1000,
 			script_pub_key: Script::from("abcdef"),
 		}];
+
+		let witness_data = None;
 		
 		let transaction = Transaction {
 			version: 1,
@@ -349,6 +390,7 @@ mod tests {
 			inputs,
 			out_counter: 1, // varint -> byte size 1-9
 			outputs,
+			witness_data,
 			lock_time: 0,
 			extra_info: None,
 		};
@@ -371,6 +413,8 @@ mod tests {
 			amount: 1000,
 			script_pub_key: Script::from("abcdef"),
 		}];
+
+		let witness_data = None;
 		
 		let transaction = Transaction {
 			version: 1,
@@ -379,6 +423,7 @@ mod tests {
 			inputs,
 			out_counter: 1,
 			outputs,
+			witness_data,
 			lock_time: 0,
 			extra_info: None,
 		};
@@ -422,6 +467,8 @@ mod tests {
 			}
 		];
 		
+		let witness_data = None;
+
 		let transaction = Transaction {
 			version: 1,
 			flag: None,
@@ -429,6 +476,7 @@ mod tests {
 			inputs,
 			out_counter: 2,
 			outputs,
+			witness_data,
 			lock_time: 0,
 			extra_info: None,
 		};
@@ -472,6 +520,8 @@ mod tests {
 			}
 		];
 		
+		let witness_data = None;
+
 		let transaction = Transaction {
 			version: 1,
 			flag: None,
@@ -479,6 +529,7 @@ mod tests {
 			inputs,
 			out_counter: 2,
 			outputs,
+			witness_data,
 			lock_time: 0,
 			extra_info: None,
 		};
@@ -532,6 +583,8 @@ mod tests {
 				script_pub_key: Script::from("a9143572de0bb360f212ef8813a9e012f63a7035c9c987"),
 			}
 		];
+
+		let witness_data = None;
 		
 		let transaction = Transaction {
 			version: 2,
@@ -540,6 +593,7 @@ mod tests {
 			inputs,
 			out_counter: 4,
 			outputs,
+			witness_data,
 			lock_time: 0,
 			extra_info: None,
 		};
@@ -567,34 +621,67 @@ mod tests {
 		assert_eq!(transaction, tx);
 	}
 
-	// #[test]
+	#[test]
 	fn decode_transaction_segwit_1() {
-		let inputs = vec![Input {
-			previous_tx: "889c2561c6caf5f31af96162b17b196cc88a81f04f5f4a9af9052529c4f71ae1".to_string(),
-			tx_index: 0,
-			script_sig: Script::from("473044022045c7199ffc8069a498135b7bb2678da16e8b5d49455b4a7ace755928c9339c7a022051cbf72024cf273444640f7b993b2bf3d329124b03e6744edaed5158a30e29b8012103fd9bc1e9803e739720e0f1c63e580a94656c7d0cab6cd083f0c0dfb221b90662"),
-			sequence: "ffffffff".to_string(),
-			prevout: None,
-		}];
+		let inputs = vec![
+			Input {
+				previous_tx: "4c13d894ad116e56d473b30774ea8577017cb51384c0104e4ee2d432b84194d1".to_string(),
+				tx_index: 28,
+				script_sig: Script::from("1600147c846a806f4d9e516c9fb2fe364f28eac4e3c3fc"),
+				sequence: "ffffffff".to_string(),
+				prevout: None,
+			},
+			Input {
+				previous_tx: "9a71c410ee5b3c3e2949f17db6220dd0887aaae63f0ecccbee2e4241596a413d".to_string(),
+				tx_index: 44,
+				script_sig: Script::from("1600147c846a806f4d9e516c9fb2fe364f28eac4e3c3fc"),
+				sequence: "ffffffff".to_string(),
+				prevout: None,
+			},
+			Input {
+				previous_tx: "966973ad982bb773854f87a725563067f332199f6b632dcca38127299a58224f".to_string(),
+				tx_index: 0,
+				script_sig: Script::from("1600147c846a806f4d9e516c9fb2fe364f28eac4e3c3fc"),
+				sequence: "ffffffff".to_string(),
+				prevout: None,
+			},
+
+		];
 
 		let outputs = vec![
 			Output {
-				amount: 1400000000000,
-				script_pub_key: Script::from("76a9143b9552116adcc2fbd74fad44a4da603a727c816e88ac"),
+				amount: 73950453,
+				script_pub_key: Script::from("a9142c21151d54bd219dcc4c52e1cb38672dab8e36cc87"),
 			},
 			Output {
-				amount: 1099994980000,
-				script_pub_key: Script::from("76a914f90ce447f14847e841d4d2ecc76299b5bc77166188ac"),
+				amount: 1147480000,
+				script_pub_key: Script::from("76a91439b1050dba04b1d1bc556c2dcdcb3874ba3dc11e88ac"),
 			}
 		];
+
+		let witness_data = Some(vec![
+			WitnessStack { 0: vec![
+				"304402203ccede7995b26185574a050373cfe607f475f7d8ee6927647c496e3b45bf61a302202bd1ff88c7f4ee0b6f0c98f687dff9033f770b23985f590d178b9085df58910101".to_string(),
+				"03789a9d83798d4cbf688f9969a94084ee1655059e137b43492ee94dc4538790ab".to_string(),
+			]},
+			WitnessStack { 0: vec![
+				"3045022100b46ab18056655cc56b1778fd61a56f895c2f44c97f055ea0269d991efd181fb402206d651a5fb51081cfdb247a1d489b182f41e52434d7c4575bea30d2ce3d24087d01".to_string(),
+				"03789a9d83798d4cbf688f9969a94084ee1655059e137b43492ee94dc4538790ab".to_string()
+			]},
+			WitnessStack { 0: vec![
+				"3044022069bf2ac34569565a62a1e0c12750104f494a906fefd2f2a462199c0d4bc235d902200c37ef333b453966cc5e84b178ec62125cbed83e0c0df4448c0fb331efa49e5101".to_string(),
+				"03789a9d83798d4cbf688f9969a94084ee1655059e137b43492ee94dc4538790ab".to_string()
+			]},
+		]);
 		
 		let transaction = Transaction {
-			version: 1,
-			flag: None,
-			in_counter: 1,
+			version: 2,
+			flag: Some(1),
+			in_counter: 3,
 			inputs,
 			out_counter: 2,
 			outputs,
+			witness_data,
 			lock_time: 0,
 			extra_info: None,
 		};

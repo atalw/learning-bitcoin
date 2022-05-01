@@ -30,6 +30,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bs58"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "771fe0050b883fcc3ea2359b1a96bcfbc090b7116eae7c3c512c7a083fdf23d3"
+
+[[package]]
 name = "bumpalo"
 version = "3.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -901,6 +907,7 @@ dependencies = [
 name = "transaction"
 version = "0.1.0"
 dependencies = [
+ "bs58",
  "derivative",
  "reqwest",
  "ripemd",

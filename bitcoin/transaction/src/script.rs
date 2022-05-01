@@ -10,6 +10,12 @@ pub struct Script(pub Box<[u8]>);
 /// Build the script piece by piece
 pub struct ScriptBuilder(Vec<u8>);
 
+pub enum ScriptType {
+	P2SH,
+	P2PKH,
+	Custom
+}
+
 impl Serialize for Script {
 	fn new<R: BufRead>(mut reader: R) -> Self {
 		println!("What type of script do you want to create?");
@@ -89,7 +95,6 @@ impl Deserialize for Script {
 		let mut stream = Cursor::new(data);
 
 		let mut script_builder = ScriptBuilder::new();
-		println!("$$$$$$$$$$$$$$$$$$$ len: {}", len);
 
 		while (stream.position() as usize) < len {
 			let b = txio::read_u8_le(&mut stream);
@@ -149,6 +154,61 @@ impl Deserialize for Script {
 
 		parsed.trim_end().to_string()
 	}
+	
+}
+
+impl Script {
+	pub fn get_address(&self) -> Option<String> {
+		if self.is_p2pkh() {
+			let pubkey_hash = &self.0[3..23];
+			let mut bytes = vec![111];
+			bytes.extend_from_slice(pubkey_hash);
+			let checksum = &hash::hash256(&bytes.clone())[..4];
+			bytes.extend_from_slice(&checksum);
+			assert_eq!(bytes.len(), 25);
+			Some(bs58::encode(bytes).into_string())
+		} else if self.is_p2sh() {
+			let pubkey_hash = &self.0[2..22];
+			let mut bytes = vec![196];
+			bytes.extend_from_slice(pubkey_hash);
+			let checksum = &hash::hash256(&bytes.clone())[..4];
+			bytes.extend_from_slice(&checksum);
+			assert_eq!(bytes.len(), 25);
+			Some(bs58::encode(bytes).into_string())
+		} else {
+			None
+		}
+	}
+	/// Determine the Script type
+	pub fn get_type(&self) -> ScriptType {
+		if self.is_p2sh() {
+			ScriptType::P2SH
+		} else if self.is_p2pkh() {
+			ScriptType::P2PKH
+		} else {
+			ScriptType::Custom
+		}
+	}
+
+    /// Checks whether a script pubkey is a P2SH output.
+    #[inline]
+    pub fn is_p2sh(&self) -> bool {
+        self.0.len() == 23
+            && self.0[0] == opcodes::all::OP_HASH160.into_u8()
+            && self.0[1] == opcodes::all::OP_PUSHBYTES_20.into_u8()
+            && self.0[22] == opcodes::all::OP_EQUAL.into_u8()
+    }
+
+    /// Checks whether a script pubkey is a P2PKH output.
+    #[inline]
+    pub fn is_p2pkh(&self) -> bool {
+        self.0.len() == 25
+            && self.0[0] == opcodes::all::OP_DUP.into_u8()
+            && self.0[1] == opcodes::all::OP_HASH160.into_u8()
+            && self.0[2] == opcodes::all::OP_PUSHBYTES_20.into_u8()
+            && self.0[23] == opcodes::all::OP_EQUALVERIFY.into_u8()
+            && self.0[24] == opcodes::all::OP_CHECKSIG.into_u8()
+    }
 }
 
 impl From<&str> for Script {
@@ -169,6 +229,17 @@ impl fmt::Debug for Script {
 		f.write_str("\n")?;
 		f.write_str("\thex: ")?;
 		write!(f, "\"{}\"", self.as_hex())?;
+		match self.get_address() {
+			Some(s) => {
+				f.write_str("\n")?;
+				f.write_str("\taddress: ")?;
+				write!(f, "\"{}\"", s)?;
+			},
+			None => {}
+		}
+		f.write_str("\n")?;
+		f.write_str("\ttype: ")?;
+		write!(f, "\"{}\"", self.get_type())?;
 		f.write_str("\n}")
 	}
 }
@@ -252,6 +323,16 @@ impl ScriptBuilder {
 			self.0.push((n / 0x1000000) as u8);
 		}
 	}
+}
+
+impl fmt::Display for ScriptType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		match *self {
+			ScriptType::P2SH => write!(f, "scripthash"),
+			ScriptType::P2PKH => write!(f, "pubkeyhash"),
+			ScriptType::Custom => write!(f, "non-standard"),
+		}
+    }
 }
 
 #[cfg(test)]

@@ -7,6 +7,10 @@ use std::fmt;
 #[derive(PartialEq)]
 pub struct Script(pub Box<[u8]>);
 
+// TODO: Q. How do I organize the code so that I can have a ScriptPubKey and ScriptSig type with
+// different fields but they both are Scripts? I want them to inherit the Serialize and Deserialize
+// impl for Script.
+
 /// Build the script piece by piece
 pub struct ScriptBuilder(Vec<u8>);
 
@@ -27,6 +31,7 @@ impl Serialize for Script {
 		let option = txio::user_read_u32(&mut reader);
 
 		if option == 1 { // p2sh script
+			println!("---- What is the format?");
 			println!("---- 1. Script hex");
 			println!("---- 2. Script asm");
 			let option = txio::user_read_u32(&mut reader);
@@ -161,7 +166,7 @@ impl Script {
 	pub fn get_address(&self) -> Option<String> {
 		if self.is_p2pkh() {
 			let pubkey_hash = &self.0[3..23];
-			let mut bytes = vec![111];
+			let mut bytes = vec![111]; // using testnet prefix
 			bytes.extend_from_slice(pubkey_hash);
 			let checksum = &hash::hash256(&bytes.clone())[..4];
 			bytes.extend_from_slice(&checksum);
@@ -169,7 +174,7 @@ impl Script {
 			Some(bs58::encode(bytes).into_string())
 		} else if self.is_p2sh() {
 			let pubkey_hash = &self.0[2..22];
-			let mut bytes = vec![196];
+			let mut bytes = vec![196]; // using testnet prefix
 			bytes.extend_from_slice(pubkey_hash);
 			let checksum = &hash::hash256(&bytes.clone())[..4];
 			bytes.extend_from_slice(&checksum);

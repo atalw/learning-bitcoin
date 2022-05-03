@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::io::{BufRead, Cursor, self, Seek, Read};
 use crate::script::Script;
-use crate::txio::{Encodable, Decodable, HexBytes};
+use crate::txio::{Encodable, Decodable, HexBytes, ReadExt, WriteExt};
 use crate::{Serialize, txio, Deserialize};
 use serde_json::Value;
 use derivative::Derivative;
@@ -122,44 +122,44 @@ impl Serialize for Transaction {
 
 	fn as_hex(&self) -> String {
 		let mut stream = Cursor::new(Vec::new());
-		txio::write_u32_le(&mut stream, self.version);
+		stream.write_u32_le(self.version);
 		if let Some(flag) = self.flag {
-			txio::write_u16_be(&mut stream, flag);
+			stream.write_u16_be(flag);
 		}
 
-		txio::write_varint(&mut stream, self.in_counter);
+		stream.write_varint(self.in_counter);
 
 		for input in &self.inputs {
-			txio::write_hex_le(&mut stream, input.previous_tx.clone(), false);
-			txio::write_u32_le(&mut stream, input.tx_index);
-			txio::write_hex_be(&mut stream, input.script_sig.as_hex(), true);
-			txio::write_hex_le(&mut stream, input.sequence.clone(), false);
+			stream.write_hex(input.previous_tx.decode_hex_le().expect("shouldn't fail"), false);
+			stream.write_u32_le(input.tx_index);
+			stream.write_hex(input.script_sig.0.clone(), true);
+			stream.write_hex(input.sequence.decode_hex_le().expect("shouldn't fail"), false);
 		}
 
-		txio::write_varint(&mut stream, self.out_counter);
+		stream.write_varint(self.out_counter);
 
 		for output in &self.outputs {
-			txio::write_u64_le(&mut stream, output.amount);
-			txio::write_hex_be(&mut stream, output.script_pub_key.as_hex(), true);
+			stream.write_u64_le(output.amount);
+			stream.write_hex(output.script_pub_key.0.clone(), true);
 		}
 
 		if let Some(witness_data) = self.witness_data.as_ref() {
 			for witnesses in witness_data {
-				txio::write_varint(&mut stream, witnesses.0.len() as u64);
+				stream.write_varint(witnesses.0.len() as u64);
 				for w in &witnesses.0 {
-					txio::write_hex_be(&mut stream, w.to_string(), true)
+					stream.write_hex(w.decode_hex_be().expect("shouldn't fail"), true);
+
 				}
 			}
 		}
 
-		txio::write_u32_le(&mut stream, self.lock_time);
+		stream.write_u32_le(self.lock_time);
 
 		stream.seek(io::SeekFrom::Start(0)).expect("Stream is empty?");
 
 		let mut raw_transaction: Vec<u8> = Vec::new();
 		stream.read_to_end(&mut raw_transaction).expect("Couldn't read till end");
 		raw_transaction.encode_hex_be()
-		// txio::encode_hex_be(&raw_transaction)
 	}
 
 	fn as_bytes(&self) -> &[u8] {
@@ -185,33 +185,34 @@ impl Deserialize for Transaction {
 		let mut stream = Cursor::new(data);
 
 		// version: always 4 bytes long
-		let version = txio::read_u32_le(&mut stream);
+		// let version = txio::read_u32_le(&mut stream);
+		let version = stream.read_u32_le()?;
 
 		// optional, always 0001 if present
-		let mut flag = Some(txio::read_u16_be(&mut stream));
+		let mut flag = Some(stream.read_u16_be()?);
 		if flag != Some(1) {
-			txio::unread(&mut stream, -2);
+			stream.seek_from_curr(-2);
 			flag = None
 		}
 
 		// number of inputs
-		let in_counter = txio::read_compact_size(&mut stream);
+		let in_counter = stream.read_compact_size()?;
 		assert_ne!(in_counter, 0);
 
 		let mut inputs: Vec<Input> = Vec::new();
 		println!("Number of inputs {} {}", in_counter, stream.position());
 		for _ in 0..in_counter {
-			let previous_tx = txio::read_hex256_le(&mut stream);
-			let tx_index = txio::read_u32_le(&mut stream);
+			let previous_tx = stream.read_hex256()?.encode_hex_le();
+			let tx_index = stream.read_u32_le()?;
 			// question: why are there n extra bytes in script_sig? in/out_script_length specifies it
-			let in_script_length = txio::read_compact_size(&mut stream);
+			let in_script_length = stream.read_compact_size()?;
 			let script_sig: Script;
 			if in_script_length == 0 {
 				script_sig = Script::from("00");
 			} else {
-				script_sig = Script(txio::read_hex_var_be(&mut stream, in_script_length));
+				script_sig = Script(stream.read_hex_var(in_script_length)?);
 			}
-			let sequence = txio::read_hex32_le(&mut stream);
+			let sequence = stream.read_hex32()?.encode_hex_le();
 			let prevout = match get_prevout(&previous_tx, tx_index) {
 				Ok(output) => Some(output),
 				Err(_) => None
@@ -230,14 +231,14 @@ impl Deserialize for Transaction {
 
 
 		// number of outputs
-		let out_counter = txio::read_compact_size(&mut stream);
+		let out_counter = stream.read_compact_size()?;
 		assert_ne!(out_counter, 0);
 
 		let mut outputs: Vec<Output> = Vec::new();
 		for _ in 0..out_counter {
-			let amount = txio::read_u64_le(&mut stream);
-			let out_script_length = txio::read_compact_size(&mut stream);
-			let script_pub_key = Script(txio::read_hex_var_be(&mut stream, out_script_length));
+			let amount = stream.read_u64_le()?;
+			let out_script_length = stream.read_compact_size()?;
+			let script_pub_key = Script(stream.read_hex_var(out_script_length)?);
 
 			let output = Output {
 				amount,
@@ -257,11 +258,10 @@ impl Deserialize for Transaction {
 				// field is an exact 0x00, indicating that the number of witness stack items is zero.
 				if inputs[i as usize].script_sig == Script::from("00") { continue }
 				let mut stack = WitnessStack(Vec::new());
-				let stack_count = txio::read_compact_size(&mut stream);
+				let stack_count = stream.read_compact_size()?;
 				for _ in 0..stack_count {
-					let length = txio::read_compact_size(&mut stream);
-					// let witness = txio::encode_hex_be(&txio::read_hex_var_be(&mut stream, length));
-					let witness = txio::read_hex_var_be(&mut stream, length).encode_hex_be();
+					let length = stream.read_compact_size()?;
+					let witness = stream.read_hex_var(length)?.encode_hex_be();
 					stack.0.push(witness);
 				}
 				_witness_data.push(stack);
@@ -271,8 +271,9 @@ impl Deserialize for Transaction {
 			witness_data = None;
 		}
 
+		
 		// always 4 bytes long
-		let lock_time = txio::read_u32_le(&mut stream);
+		let lock_time = stream.read_u32_le()?;
 
 		let extra_info: Option<ExtraInfo>;
 

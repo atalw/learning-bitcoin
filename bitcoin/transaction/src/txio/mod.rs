@@ -1,5 +1,5 @@
 use std::fmt::{write, LowerHex};
-use std::io::{Read, Cursor, Seek, SeekFrom, BufRead, Write, Error};
+use std::io::{Seek, SeekFrom, BufRead, Write, Error};
 use std::num::ParseIntError;
 
 use crate::Deserialize;
@@ -71,108 +71,222 @@ impl<T: Sized + ToString> Decodable for T {
 	}
 }
 
+/// Extension of Read to decode data according to Bitcoin's spec.
+pub trait ReadExt {
+	/// Read 8-bits in where the source is in little-endian format.
+	fn read_u8_le(&mut self) -> Result<u8, Error>;
+	/// Read 16-bits in where the source is in little-endian format.
+	fn read_u16_le(&mut self) -> Result<u16, Error>;
+	/// Read 32-bits in where the source is in little-endian format.
+	fn read_u32_le(&mut self) -> Result<u32, Error>;
+	/// Read 32-bits in where the source is in little-endian format.
+	fn read_u64_le(&mut self) -> Result<u64, Error>;
+
+	/// Read 8-bits in where the source is in big-endian format.
+	fn read_u8_be(&mut self) -> Result<u8, Error>;
+	/// Read 16-bits in where the source is in big-endian format.
+	fn read_u16_be(&mut self) -> Result<u16, Error>;
+	/// Read 32-bits in where the source is in big-endian format.
+	fn read_u32_be(&mut self) -> Result<u32, Error>;
+	/// Read 64-bits in where the source is in big-endian format.
+	fn read_u64_be(&mut self) -> Result<u64, Error>;
+
+	/// Read 32-bits as bytes (which are in hex format).
+	fn read_hex32(&mut self) -> Result<HexBytes, Error>;
+	/// Read 256-bits as bytes (which are in hex format).
+	fn read_hex256(&mut self) -> Result<HexBytes, Error>;
+	/// Read an arbitrary number of bits as bytes (which are in hex format).
+	fn read_hex_var(&mut self, len: u64) -> Result<HexBytes, Error>;
+
+	/**
+	 *
+	 * Compact Size
+	 * https://en.bitcoin.it/wiki/Protocol_documentation#Variable_length_integer
+	 * size <  253        -- 1 byte
+	 * size <= USHRT_MAX  -- 3 bytes  (253 + 2 bytes)
+	 * size <= UINT_MAX   -- 5 bytes  (254 + 4 bytes)
+	 * size >  UINT_MAX   -- 9 bytes  (255 + 8 bytes)
+	 * fc -> 0-252
+	 * fd -> 0000 (253 + 2 bytes)
+	 * fe -> 0000 0000 (254 + 4 bytes)
+	 * ff -> 0000 0000 0000 0000 (255 + 8 bytes)
+	 * check bitcoin/src/serialize.h file
+	 */
+	fn read_compact_size(&mut self) -> Result<u64, Error>;
+
+	/// Seek the current buffer forward or backward by a specified amount.
+	fn seek_from_curr(&mut self, length: i64);
+}
+
+/// Extension of Write to decode data according to Bitcoin's spec.
+pub trait WriteExt {
+	/// Write 16-bits on to the buffer in little-endian format. Return the number of bytes written.
+	fn write_u16_le(&mut self, val: u16) -> usize;
+	/// Write 32-bits on to the buffer in little-endian format. Return the number of bytes written.
+	fn write_u32_le(&mut self, val: u32) -> usize;
+	/// Write 64-bits on to the buffer in little-endian format. Return the number of bytes written.
+	fn write_u64_le(&mut self, val: u64) -> usize;
+
+	/// Write 16-bits on to the buffer in big-endian format. Return the number of bytes written.
+	fn write_u16_be(&mut self, val: u16) -> usize;
+
+	/// Write an array of hex bytes on to the buffer (in big-endian). Specify if the len as
+	/// compact-size should be written first. This is useful for scripts.
+	/// Returns the number of bytes written.
+	fn write_hex(&mut self, val: HexBytes, with_varint: bool) -> usize;
+
+	/// Given a size, write it to the buffer in Bitcoin varint/compact-size format.
+	fn write_varint(&mut self, size: u64) -> usize;
+}
 
 // ---- Buffer reading ----
-
 macro_rules! impl_read_int_le {
-	($ty:ty, $len:expr, $fn_name:ident) => {
-		pub fn $fn_name(stream: &mut Cursor<HexBytes>) -> $ty {
+	($ty: ty, $len: expr, $fn_name: ident) => {
+		fn $fn_name(&mut self) -> Result<$ty, Error> {
 			let mut bytes = [0; $len];
-			match stream.read(&mut bytes) {
-				Ok(_) => <$ty>::from_le_bytes(bytes),
-				Err(e) => panic!("{}", e)
-			}
+			self.read(&mut bytes)?;
+			Ok(<$ty>::from_le_bytes(bytes))
 		}
 	};
 }
 
 macro_rules! impl_read_int_be {
-	($ty:ty, $len:expr, $fn_name:ident) => {
-		pub fn $fn_name(stream: &mut Cursor<HexBytes>) -> $ty {
+	($ty: ty, $len: expr, $fn_name: ident) => {
+		fn $fn_name(&mut self) -> Result<$ty, Error> {
 			let mut bytes = [0; $len];
-			match stream.read(&mut bytes) {
-				Ok(_) => <$ty>::from_be_bytes(bytes),
+			self.read(&mut bytes)?;
+			Ok(<$ty>::from_be_bytes(bytes))
+		}
+	};
+}
+
+macro_rules! impl_read_hex {
+	($len: expr, $fn_name: ident) => {
+		fn $fn_name(&mut self) -> Result<HexBytes, Error> {
+			let mut bytes = [0; $len];
+			self.read(&mut bytes)?;
+			Ok(Box::new(bytes))
+		}
+	};
+}
+
+impl<R: BufRead + Seek> ReadExt for R {
+	impl_read_int_le!(u8, 1, read_u8_le);
+	impl_read_int_le!(u16, 2, read_u16_le);
+	impl_read_int_le!(u32, 4, read_u32_le);
+	impl_read_int_le!(u64, 8, read_u64_le);
+
+	impl_read_int_be!(u8, 1, read_u8_be);
+	impl_read_int_be!(u16, 2, read_u16_be);
+	impl_read_int_be!(u32, 4, read_u32_be);
+	impl_read_int_be!(u64, 8, read_u64_be);
+
+	impl_read_hex!(4, read_hex32);
+	impl_read_hex!(32, read_hex256);
+
+	fn read_hex_var(&mut self, length: u64) -> Result<HexBytes, Error> {
+		let mut bytes = vec![0; length as usize];
+		self.read(&mut bytes)?;
+		Ok(bytes.encode_hex_be().decode_hex_be().expect("unable to parse"))
+	}
+
+	fn read_compact_size(&mut self) -> Result<u64, Error> {
+		let  varint_size: u8 = self.read_u8_le()?;
+		let size: u64;
+
+		if varint_size < 253 {
+			size = varint_size as u64;
+		} else if varint_size == 253 {
+			size = self.read_u16_le()? as u64;
+			assert!(size > 253);
+		} else if varint_size == 254 {
+			size = self.read_u32_le()? as u64;
+			assert!(size > 0x10000);
+		} else if varint_size == 255 {
+			size = self.read_u64_le()?;
+			assert!(size > 0x100000000);
+		} else {
+			// TODO: Should i return an error over here? How?
+			panic!()
+		}
+
+		assert!(size != 0);
+		Ok(size)
+	}
+
+	fn seek_from_curr(&mut self, length: i64) {
+		match self.seek(SeekFrom::Current(length)) {
+			Ok(_) => (),
+			Err(e) => panic!("{}", e)
+		}
+	}
+}
+
+macro_rules! impl_write_int_le {
+	($ty: ty, $fn_name: ident) => {
+		fn $fn_name(&mut self, val: $ty) -> usize {
+			let bytes = val.to_le_bytes();
+			match self.write(&bytes) {
+				Ok(n) => n,
 				Err(e) => panic!("{}", e)
 			}
 		}
 	};
 }
 
-macro_rules! impl_read_hex_le {
-	($len:expr, $fn_name:ident) => {
-		pub fn $fn_name(stream: &mut Cursor<HexBytes>) -> String {
-			let mut bytes = [0; $len];
-			match stream.read(&mut bytes) {
-				Ok(_) => bytes.encode_hex_le(),
+macro_rules! impl_write_int_be {
+	($ty: ty, $fn_name: ident) => {
+		fn $fn_name(&mut self, val: $ty) -> usize {
+			let bytes = val.to_be_bytes();
+			match self.write(&bytes) {
+				Ok(n) => n,
 				Err(e) => panic!("{}", e)
 			}
 		}
 	};
 }
 
-impl_read_int_le!(u8, 1, read_u8_le);
-impl_read_int_le!(u16, 2, read_u16_le);
-impl_read_int_le!(u32, 4, read_u32_le);
-impl_read_int_le!(u64, 8, read_u64_le);
 
-impl_read_int_be!(u8, 1, read_u8_be);
-impl_read_int_be!(u16, 2, read_u16_be);
-impl_read_int_be!(u32, 4, read_u32_be);
-impl_read_int_be!(u64, 8, read_u64_be);
+impl<W: Write> WriteExt for W {
+	impl_write_int_le!(u16, write_u16_le);
+	impl_write_int_le!(u32, write_u32_le);
+	impl_write_int_le!(u64, write_u64_le);
 
-impl_read_hex_le!(4, read_hex32_le);
-impl_read_hex_le!(32, read_hex256_le);
+	impl_write_int_be!(u16, write_u16_be);
 
-pub fn read_hex_var_be(stream: &mut Cursor<HexBytes>, length: u64) -> HexBytes {
-	let mut bytes = vec![0; length as usize];
-	match stream.read(&mut bytes) {
-		// TODO: I'm sure there is a  better way to do this...
-		Ok(_) => bytes.encode_hex_be().decode_hex_be().expect("unable to read hex"),
-		Err(e) => panic!("{}", e)
-	}
-}
-
-/**
- *
- * Compact Size
- * https://en.bitcoin.it/wiki/Protocol_documentation#Variable_length_integer
- * size <  253        -- 1 byte
- * size <= USHRT_MAX  -- 3 bytes  (253 + 2 bytes)
- * size <= UINT_MAX   -- 5 bytes  (254 + 4 bytes)
- * size >  UINT_MAX   -- 9 bytes  (255 + 8 bytes)
- * fc -> 0-252
- * fd -> 0000 (253 + 2 bytes)
- * fe -> 0000 0000 (254 + 4 bytes)
- * ff -> 0000 0000 0000 0000 (255 + 8 bytes)
- * check bitcoin/src/serialize.h file
-*/
-pub fn read_compact_size(stream: &mut Cursor<HexBytes>) -> u64 {
-	let  varint_size: u8 = read_u8_le(stream);
-	let size: u64;
-
-	if varint_size < 253 {
-		size = varint_size as u64;
-	} else if varint_size == 253 {
-		size = read_u16_le(stream) as u64;
-		assert!(size > 253);
-	} else if varint_size == 254 {
-		size = read_u32_le(stream) as u64;
-		assert!(size > 0x10000);
-	} else if varint_size == 255 {
-		size = read_u64_le(stream);
-		assert!(size > 0x100000000);
-	} else {
-		panic!()
+	fn write_hex(&mut self, bytes: HexBytes, with_varint: bool) -> usize {
+		if with_varint { self.write_varint(bytes.len() as u64); }
+		match self.write(&bytes) {
+			Ok(n) => n,
+			Err(e) => panic!("{}", e)
+		}
 	}
 
-	assert!(size != 0);
-	size
-}
+	fn write_varint(&mut self, size: u64) -> usize {
+		let mut bytes: Vec<u8> = Vec::new();
+		if size < 253 {
+			bytes.push(size as u8);
+		} else if size < 0x100 {
+			bytes.push(253);
+			bytes.push(size as u8);
+		} else if size < 0x10000 {
+			bytes.push(254);
+			bytes.push((size % 0x100) as u8);
+			bytes.push((size / 0x100) as u8);
+		} else if size < 0x100000000 {
+			bytes.push(255);
+			bytes.push((size % 0x100) as u8);
+			bytes.push(((size / 0x100) % 0x100) as u8);
+			bytes.push(((size % 0x10000) % 0x100) as u8);
+			bytes.push((size / 0x1000000) as u8);
+		} else {
+			panic!()
+		}
 
-pub fn unread(stream: &mut Cursor<HexBytes>, length: i64) {
-	match stream.seek(SeekFrom::Current(length)) {
-		Ok(_) => (),
-		Err(e) => panic!("{}", e)
+		match self.write(&bytes) {
+			Ok(n) => n,
+			Err(e) => panic!("{}", e)
+		}
 	}
 }
 
@@ -289,80 +403,6 @@ where
     reader.read_line(line)
 }
 
-macro_rules! impl_write_int_le {
-	($ty:ty, $fn_name:ident) => {
-		pub fn $fn_name(stream: &mut Cursor<Vec<u8>>, val: $ty) -> usize {
-			let bytes = val.to_le_bytes();
-			match stream.write(&bytes) {
-				Ok(n) => n,
-				Err(e) => panic!("{}", e)
-			}
-		}
-	};
-}
-
-macro_rules! impl_write_int_be {
-	($ty:ty, $fn_name:ident) => {
-		pub fn $fn_name(stream: &mut Cursor<Vec<u8>>, val: $ty) -> usize {
-			let bytes = val.to_be_bytes();
-			match stream.write(&bytes) {
-				Ok(n) => n,
-				Err(e) => panic!("{}", e)
-			}
-		}
-	};
-}
-
-impl_write_int_le!(u16, write_u16_le);
-impl_write_int_le!(u32, write_u32_le);
-impl_write_int_le!(u64, write_u64_le);
-
-impl_write_int_be!(u16, write_u16_be);
-
-pub fn write_hex_le(stream: &mut Cursor<Vec<u8>>, val: String, with_varint: bool) {
-	if with_varint { write_varint(stream, val.len() as u64 / 2) }
-	let bytes = val.decode_hex_le().expect("Something wrong with the hex");
-	match stream.write(&bytes) {
-		Ok(_) => {},
-		Err(e) => panic!("{}", e)
-	}
-}
-
-pub fn write_hex_be(stream: &mut Cursor<Vec<u8>>, val: String, with_varint: bool) {
-	if with_varint { write_varint(stream, val.len() as u64 / 2) }
-	let bytes = val.decode_hex_be().expect("Something wrong with the hex");
-	match stream.write(&bytes) {
-		Ok(_) => {},
-		Err(e) => panic!("{}", e)
-	}
-}
-
-pub fn write_varint(stream: &mut Cursor<Vec<u8>>, size: u64) {
-	let mut bytes: Vec<u8> = Vec::new();
-	if size < 253 {
-		bytes.push(size as u8);
-	} else if size < 0x100 {
-		bytes.push(253);
-		bytes.push(size as u8);
-	} else if size < 0x10000 {
-		bytes.push(254);
-		bytes.push((size % 0x100) as u8);
-		bytes.push((size / 0x100) as u8);
-	} else if size < 0x100000000 {
-		bytes.push(255);
-		bytes.push((size % 0x100) as u8);
-		bytes.push(((size / 0x100) % 0x100) as u8);
-		bytes.push(((size % 0x10000) % 0x100) as u8);
-		bytes.push((size / 0x1000000) as u8);
-	} else {
-		panic!()
-	}
-
-	match stream.write(&bytes) {
-		Ok(_) => {},
-		Err(e) => panic!("{}", e)
-	}
-}
 
 // sometimes can't do i32::from_le_bytes because from_le_bytes requires a 4 byte input
 // can convert 2 bytes to 4 bytes: https://dev.to/wayofthepie/three-bytes-to-an-integer-13g5

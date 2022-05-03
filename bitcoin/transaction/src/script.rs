@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::io::{BufRead, Cursor};
-use crate::txio::{Decodable, HexBytes};
+use crate::txio::{Decodable, HexBytes, ReadExt};
 use crate::{Serialize, opcodes, Deserialize, txio, hash};
 use std::fmt;
 
@@ -105,16 +105,16 @@ impl Deserialize for Script {
 		let mut script_builder = ScriptBuilder::new();
 
 		while (stream.position() as usize) < len {
-			let b = txio::read_u8_le(&mut stream);
+			let b = stream.read_u8_le().expect("shouldn't fail i think");
 			let opcode = opcodes::All::from(b);
 
 			// not sure if this is the correct condition
 			if opcode.code == opcodes::all::OP_PUSHBYTES_1.into_u8() {
-				let size = txio::read_u8_le(&mut stream);
+				let size = stream.read_u8_le().expect("shouldn't fail i think");
 				script_builder.push_size(size);
 			} else if opcode.code > opcodes::all::OP_PUSHBYTES_1.into_u8() && opcode.code <= opcodes::all::OP_PUSHBYTES_75.into_u8() {
 				let len = opcode.code;
-				let script = Script(txio::read_hex_var_be(&mut stream, len as u64));
+				let script = Script(stream.read_hex_var(len as u64).expect("shouldn't fail i think"));
 				// let script_hex = txio::decode_hex_be(&script).expect("script incorrect");
 				script_builder.push_script_hash(&script.as_bytes());
 			} else if opcode.code >= opcodes::all::OP_PUSHNUM_1.into_u8() && 
@@ -129,7 +129,7 @@ impl Deserialize for Script {
 	}
 
 	// TODO: I don't like that this code is repeated. How do I reuse?
-	fn as_asm(&self) -> String { 
+	fn as_asm(&self) -> String {
 		// let data = txio::decode_hex_be(&self.as_hex()).expect("uho ho");
 		let data = self.as_hex().decode_hex_be().expect("uho ho");
 		let len = data.len();
@@ -138,17 +138,17 @@ impl Deserialize for Script {
 		let mut parsed = "".to_string();
 
 		while (stream.position() as usize) < len {
-			let b = txio::read_u8_le(&mut stream);
+			let b = stream.read_u8_le().expect("won't fail");
 			let opcode = opcodes::All::from(b);
 
 			// not sure if this is the correct condition
 			if opcode.code == opcodes::all::OP_PUSHBYTES_1.into_u8() {
-				let size = txio::read_u8_le(&mut stream);
+				let size = stream.read_u8_le().expect("shouldn't fail i think");
 				parsed.push_str(&format!("{}", size));
 				parsed.push_str(" ");
 			} else if opcode.code > opcodes::all::OP_PUSHBYTES_1.into_u8() && opcode.code <= opcodes::all::OP_PUSHBYTES_75.into_u8() {
 				let len = opcode.code;
-				let script = Script(txio::read_hex_var_be(&mut stream, len as u64));
+				let script = Script(stream.read_hex_var(len as u64).expect("shouldn't fail i think"));
 				parsed.push_str(&script.as_hex());
 				parsed.push_str(" ");
 			} else if opcode.code >= opcodes::all::OP_PUSHNUM_1.into_u8() && 

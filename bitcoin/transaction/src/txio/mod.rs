@@ -1,9 +1,12 @@
 use std::fmt::{write, LowerHex};
-use std::io::{Seek, SeekFrom, BufRead, Write, Error};
+use std::io::{Seek, SeekFrom, BufRead, Write, Error, ErrorKind};
 use std::num::ParseIntError;
 
 use crate::Deserialize;
 use crate::script::{ScriptBuilder, Script};
+
+// TODO:
+// - Custom errors
 
 /// Discussion on Vec<u8> vs Box<[u8]>
 /// https://github.com/ipld/libipld/issues/36
@@ -290,119 +293,131 @@ impl<W: Write> WriteExt for W {
 	}
 }
 
-// TODO: Can't figure out how to wrap read into a loop so that the user can enter the text again
-// incase of an error. The problem is when adding support for mock inputs using Cursor.
-pub fn user_read_u32<R: BufRead>(reader: R) -> u32 {
-	let mut line = String::new();
-	match read_line(reader, &mut line) {
-		Ok(n) => {
-			if n <= 5 { // 4 bytes + \n
-				match line.trim_end().parse::<u32>() {
-					Ok(val) => return val,
-					Err(e) => panic!("{} {}", e, line)
+pub trait UserReadExt<R: BufRead> {
+	fn user_read_u32(&mut self) -> u32;
+	fn user_read_u64(&mut self) -> u64;
+
+	fn user_read_hex32(&mut self) -> HexBytes;
+	fn user_read_hex256(&mut self) -> HexBytes;
+	fn user_read_hex_var(&mut self) -> HexBytes;
+
+	fn user_read_bool(&mut self) -> bool;
+
+	fn user_read_asm(&mut self) -> Script;
+}
+
+macro_rules! user_read_int {
+	($ty: ty, $fn_name: ident) => {
+		fn $fn_name(&mut self) -> $ty {
+			loop {
+				let mut line = String::new();
+				match self.read_line(&mut line) {
+					Ok(n) if n <= (<$ty>::BITS/8 + 1) as usize => {
+						match line.trim_end().parse::<$ty>() {
+							Ok(v) => return v,
+							Err(_) => println!("Error! Enter a number.")
+						}
+					},
+					_ => println!("Try again")
 				}
-
-			} else {
-				panic!("Number is too big");
 			}
-		},
-		Err(e) => panic!("{}", e)
-	}
+		}
+
+	};
 }
 
-pub fn user_read_u64<R: BufRead>(reader: R) -> u64 {
-	let mut line = String::new();
-	match read_line(reader, &mut line) {
-		Ok(n) => {
-			if n <= 9 { // 8 bytes + \n
-				match line.trim_end().parse::<u64>() {
-					Ok(val) => return val,
-					Err(e) => panic!("{} {}", e, line)
+macro_rules! user_read_hex {
+	($len: expr, $fn_name: ident) => {
+		fn $fn_name(&mut self) -> HexBytes {
+			loop {
+				let mut line = String::new();
+				match self.read_line(&mut line) {
+					Ok(n) if n == $len*2 + 1 => {
+						match line.trim_end().decode_hex_be() {
+							Ok(hex) => return hex,
+							Err(e) => println!("{}. Try again.", e)
+						}
+					},
+					_ => println!("Error! Try again.")
 				}
-
-			} else {
-				panic!("Number is too big");
 			}
-		},
-		Err(e) => panic!("{}. Try again!", e)
-	}
+		}
+	};
 }
 
-pub fn user_read_bool<R: BufRead>(reader: R) -> bool {
-	let mut line = String::new();
-	match read_line(reader, &mut line) {
-		Ok(_) => {
-			match line.trim_end().parse::<bool>() {
-				Ok(val) => return val,
-				Err(e) => panic!("{}", e)
+impl<R: BufRead> UserReadExt<R> for R {
+
+	user_read_int!(u32, user_read_u32);
+	user_read_int!(u64, user_read_u64);
+
+	user_read_hex!(4, user_read_hex32);
+	user_read_hex!(32, user_read_hex256);
+
+	fn user_read_hex_var(&mut self) -> HexBytes {
+		loop {
+			let mut line = String::new();
+			match self.read_line(&mut line) {
+				Ok(_) => {
+					match line.trim_end().decode_hex_be() {
+						Ok(hex) => return hex,
+						Err(e) => println!("{}. Try again.", e)
+					}
+				},
+				_ => println!("Error! Try again.")
 			}
-		},
-		Err(e) => panic!("{}", e)
+		}
 	}
-}
 
-pub fn user_read_hex<R: BufRead>(reader: R, len: Option<u64>) -> String {
-	let mut line = String::new();
-	match read_line(reader, &mut line) {
-		Ok(n) => {
-			if let Some(b) = len { 
-				if (n as u64 - 1) / 2 == b {
-					return line.trim_end().to_string()
-				} else {
-					panic!("Expected {} bytes, got {} bytes", b, n-1);
-				}
-			} else {
-				return line.trim_end().to_string()
+	fn user_read_bool(&mut self) -> bool {
+		loop {
+			let mut line = String::new();
+			match self.read_line(&mut line) {
+				Ok(_) => {
+					match line.trim_end().parse::<bool>() {
+						Ok(v) => return v,
+						Err(_) => println!("Error! Enter \"true\" or \"false\".")
+					}
+				},
+				_ => println!("Try again")
 			}
-		},
-		Err(e) => panic!("{}", e)
+		}
+	}
+
+	fn user_read_asm(&mut self) -> Script {
+		loop {
+			let mut line = String::new();
+			match self.read_line(&mut line) {
+				Ok(_) => {
+					match line.trim_end().parse_asm() {
+						Ok(script) => return script,
+						Err(e) => println!("{}. Try again.", e)
+					}
+
+				},
+				Err(e) => println!("{}. Try again.", e)
+			}
+		}
 	}
 }
 
-/// Used for reach script_pub_key and script_sig
-pub fn user_read_script_hex<R: BufRead>(reader: R) -> Script {
-	let mut line = String::new();
-	match read_line(reader, &mut line) {
-		Ok(_) => {
-			Script(line
-				   .trim_end()
-				   .decode_hex_be()
-				   .expect("Is the script_pub_key/script_sig correct?")
-			)
-		},
-		Err(e) => panic!("{}", e)
+trait StrExt {
+	fn parse_asm(&self) -> Result<Script, Box<dyn std::error::Error>>;
+}
+
+impl StrExt for str {
+	fn parse_asm(&self) -> Result<Script, Box<dyn std::error::Error>> {
+		let tokens: Vec<&str> = self.split(" ").collect();
+
+		let mut script_builder = ScriptBuilder::new();
+		for token in &tokens {
+			script_builder.push(token)?;
+		}
+		let script = script_builder.into_script();
+		println!("Parsed script is: {}", script.as_asm());
+		if script.as_asm() == self {
+			Ok(script)
+		} else {
+			Err(Box::new(Error::new(ErrorKind::InvalidInput, "Uh oh! The parsed script does not match.")))
+		}
 	}
 }
-
-pub fn user_read_script_asm<R: BufRead>(reader: R) -> Script {
-	let mut line = String::new();
-	match read_line(reader, &mut line) {
-		Ok(_) => {
-			parse_asm_script(line.trim_end().to_string())
-		},
-		Err(e) => panic!("{}", e)
-	}
-}
-
-fn parse_asm_script(script_asm: String) -> Script {
-	let tokens: Vec<&str> = script_asm.split(" ").collect();
-
-	let mut script_builder = ScriptBuilder::new();
-	for token in &tokens {
-		script_builder.push(token);
-	}
-	let script = script_builder.into_script();
-	println!("Parsed script is: {}", script.as_asm());
-	script
-}
-
-fn read_line<R>(mut reader: R, line: &mut String) -> Result<usize, Error>
-where
-    R: BufRead,
-{
-    reader.read_line(line)
-}
-
-
-// sometimes can't do i32::from_le_bytes because from_le_bytes requires a 4 byte input
-// can convert 2 bytes to 4 bytes: https://dev.to/wayofthepie/three-bytes-to-an-integer-13g5

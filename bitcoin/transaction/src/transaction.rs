@@ -3,9 +3,8 @@
 use std::error::Error;
 use std::io::{BufRead, Cursor, self, Seek, Read};
 use crate::script::Script;
-use crate::txio::{Encodable, Decodable, HexBytes, ReadExt, WriteExt};
-use crate::{Serialize, txio, Deserialize};
-use serde_json::Value;
+use crate::txio::{Encodable, Decodable, ReadExt, WriteExt, UserReadExt};
+use crate::{Serialize, Deserialize};
 use derivative::Derivative;
 
 #[derive(Derivative)]
@@ -60,22 +59,22 @@ pub struct ExtraInfo {
 impl Serialize for Transaction {
 	fn new<R: BufRead>(mut reader: R) -> Self {
 		println!("1. Version? (enter 1 or 2): ");
-		let version = txio::user_read_u32(&mut reader);
+		let version = reader.user_read_u32();
 		println!("2. Segwit? (enter true or false)");
-		let flag = if txio::user_read_bool(&mut reader) { Some(1) } else { None };
+		let flag = if reader.user_read_bool() { Some(1) } else { None };
 		println!("2. Number of inputs?: ");
-		let in_counter = txio::user_read_u64(&mut reader);
+		let in_counter = reader.user_read_u64();
 		let mut inputs = Vec::new();
 		for i in 0..in_counter {
 			println!("3. Enter input {}:", i);
 			println!("---- Previous transaction hex:");
-			let previous_tx = txio::user_read_hex(&mut reader, Some(32));
+			let previous_tx = reader.user_read_hex256().encode_hex_be();
 			println!("---- Output index:");
-			let tx_index = txio::user_read_u32(&mut reader);
+			let tx_index = reader.user_read_u32();
 			println!("---- Script_sig:");
 			let script_sig = Script::new(&mut reader);
 			println!("---- Sequence (in hex):");
-			let sequence = txio::user_read_hex(&mut reader, Some(4));
+			let sequence = reader.user_read_hex32().encode_hex_be();
 			let prevout = None;
 
 			inputs.push(Input {
@@ -88,12 +87,12 @@ impl Serialize for Transaction {
 		}
 
 		println!("4. Number of outputs?: ");
-		let out_counter = txio::user_read_u64(&mut reader);
+		let out_counter = reader.user_read_u64();
 		let mut outputs = Vec::new();
 		for i in 0..out_counter {
 			println!("5. Enter output {}:", i);
 			println!("---- Amount (in sats):");
-			let amount = txio::user_read_u64(&mut reader);
+			let amount = reader.user_read_u64();
 			println!("---- Script pubkey:");
 			let script_pub_key = Script::new(&mut reader);
 
@@ -104,7 +103,7 @@ impl Serialize for Transaction {
 		}
 
 		println!("6. Locktime (in decimal): ");
-		let lock_time = txio::user_read_u32(&mut reader);
+		let lock_time = reader.user_read_u32();
 		let extra_info = None;
 
 		Transaction { 
@@ -168,24 +167,13 @@ impl Serialize for Transaction {
 }
 
 impl Deserialize for Transaction {
-	fn decode_raw<R: BufRead>(reader: R) -> Result<Self, Box<dyn Error>> {
+	fn decode_raw<R: BufRead>(mut reader: R) -> Result<Self, Box<dyn Error>> {
 		println!("Enter a raw transaction hex");
-		let hex = txio::user_read_hex(reader, None);
+		let raw_transaction_bytes = reader.user_read_hex_var();
 
-		let raw_transaction = match serde_json::from_str::<Value>(&hex) {
-			Ok(d) => d["result"].to_string(),
-			Err(_) => hex 
-		};
-		println!("raw transaction: {}", raw_transaction);
-		println!("-------------------");
-
-		// convert to bytes
-		// let result: Box<[u8]> = txio::decode_hex_be(&raw_transaction)?;
-		let data: HexBytes = raw_transaction.decode_hex_be()?;
-		let mut stream = Cursor::new(data);
+		let mut stream = Cursor::new(raw_transaction_bytes);
 
 		// version: always 4 bytes long
-		// let version = txio::read_u32_le(&mut stream);
 		let version = stream.read_u32_le()?;
 
 		// optional, always 0001 if present
@@ -320,7 +308,6 @@ fn get_prevout(previous_tx: &str, index: u32) -> Result<Output, Box<dyn Error>> 
 
 	let amount = prevouts[index as usize]["value"].as_u64().unwrap_or(0); 
 	let hex = prevouts[index as usize]["scriptpubkey"].to_string().replace("\"", "");
-	// let script_pub_key = Script(txio::decode_hex_be(&hex)?);
 	let script_pub_key = Script(hex.decode_hex_be()?);
 
 	let output = Output {

@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::io::{BufRead, Cursor};
-use crate::txio::{Decodable, HexBytes, ReadExt};
-use crate::{Serialize, opcodes, Deserialize, txio, hash};
+use crate::txio::{Decodable, HexBytes, ReadExt, UserReadExt};
+use crate::{Serialize, opcodes, Deserialize, hash};
 use std::fmt;
 
 // Why box? https://doc.rust-lang.org/book/ch15-01-box.html
@@ -30,32 +30,31 @@ impl Serialize for Script {
 		println!("3. Leave empty (00)");
 		println!("4. Custom (be careful)");
 		println!("Enter option:");
-		let option = txio::user_read_u32(&mut reader);
+		let option = reader.user_read_u32();
 
 		if option == 1 { // p2sh script
 			println!("---- What is the format?");
 			println!("---- 1. Script hex");
 			println!("---- 2. Script asm");
-			let option = txio::user_read_u32(&mut reader);
+			let option = reader.user_read_u32();
 			let script: Script;
 			if option == 1 { // hex
 				println!("Enter the unhashed script hex:");
-				script = txio::user_read_script_hex(&mut reader);
+				script = Script(reader.user_read_hex_var());
 			} else if option == 2 { // asm
 				println!("---- Enter the script in assembly. I'll hash it for you:");
-				script = txio::user_read_script_asm(&mut reader);
+				script = reader.user_read_asm();
 			} else { unimplemented!() }
 			println!("Original script: {}", script.as_hex());
 			Script::new_p2sh(script.as_bytes())
 		} else if option == 2 { // p2pkh script
 			println!("Enter the public key:");
-			let key = txio::user_read_script_hex(&mut reader);
+			let key = Script(reader.user_read_hex_var());
 			Script::new_p2pkh(&key.as_bytes())
 		} else if option == 3 { // empty, useful for signrawtransactionwithwallet
 			Script::from("00")
 		}  else if option == 4 { // custom script
-			let hex = txio::user_read_script_hex(&mut reader);
-			Script::from(hex)
+			Script(reader.user_read_hex_var())
 		} else {
 			todo!()
 		}
@@ -93,14 +92,12 @@ impl Script {
 }
 
 impl Deserialize for Script {
-	fn decode_raw<R: BufRead>(reader: R) -> Result<Self, Box<dyn Error>> {
+	fn decode_raw<R: BufRead>(mut reader: R) -> Result<Self, Box<dyn Error>> {
 		println!("Enter a raw script hex");
-		let hex = txio::user_read_hex(reader, None);
+		let raw_script_bytes = reader.user_read_hex_var();
 
-		// let data = txio::decode_hex_be(&hex)?;
-		let data = hex.decode_hex_be()?;
-		let len = data.len();
-		let mut stream = Cursor::new(data);
+		let len = raw_script_bytes.len();
+		let mut stream = Cursor::new(raw_script_bytes);
 
 		let mut script_builder = ScriptBuilder::new();
 
@@ -115,7 +112,6 @@ impl Deserialize for Script {
 			} else if opcode.code > opcodes::all::OP_PUSHBYTES_1.into_u8() && opcode.code <= opcodes::all::OP_PUSHBYTES_75.into_u8() {
 				let len = opcode.code;
 				let script = Script(stream.read_hex_var(len as u64).expect("shouldn't fail i think"));
-				// let script_hex = txio::decode_hex_be(&script).expect("script incorrect");
 				script_builder.push_script_hash(&script.as_bytes());
 			} else if opcode.code >= opcodes::all::OP_PUSHNUM_1.into_u8() && 
 				opcode.code <= opcodes::all::OP_PUSHNUM_15.into_u8() {
@@ -271,17 +267,19 @@ impl ScriptBuilder {
 		Script(self.0.clone().into_boxed_slice())
 	}
 
-	pub fn push(&mut self, token: &str) {
+	pub fn push(&mut self, token: &str) -> Result<(), Box<dyn Error>> {
 		let code = opcodes::All::from(token);
 
 		// TODO: Not the best idea but it works for now
 		if code == opcodes::all::OP_INVALIDOPCODE {
 			// let hex = txio::decode_hex_be(token).expect("Is this a proper script hash?");
-			let hash = token.decode_hex_be().expect("Is this a proper script hash?");
+			let hash = token.decode_hex_be()?;
 			self.push_script_hash(&hash);
 		} else {
 			self.push_opcode(code);
 		}
+
+		Ok(())
 	}
 
 	fn push_opcode(&mut self, opcode: opcodes::All) {

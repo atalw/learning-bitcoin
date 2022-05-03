@@ -6,6 +6,8 @@ use std::io::{BufRead, self};
 use script::Script;
 use transaction::Transaction;
 
+use crate::txio::UserReadExt;
+
 mod txio;
 mod opcodes;
 mod transaction;
@@ -30,7 +32,7 @@ fn main() {
 	println!("3. Decode raw transaction");
 	println!("4. Decode raw script");
 
-	let option = txio::user_read_u32(io::stdin().lock());
+	let option = io::stdin().lock().user_read_u32();
 
 	if option == 1 {
 		let transaction = Transaction::new(io::stdin().lock());

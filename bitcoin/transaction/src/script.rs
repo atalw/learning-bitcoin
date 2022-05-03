@@ -1,15 +1,17 @@
 use std::error::Error;
 use std::io::{BufRead, Cursor};
+use crate::txio::{Decodable, HexBytes};
 use crate::{Serialize, opcodes, Deserialize, txio, hash};
 use std::fmt;
 
 // Why box? https://doc.rust-lang.org/book/ch15-01-box.html
 #[derive(PartialEq)]
-pub struct Script(pub Box<[u8]>);
+pub struct Script(pub HexBytes);
 
 // TODO: Q. How do I organize the code so that I can have a ScriptPubKey and ScriptSig type with
 // different fields but they both are Scripts? I want them to inherit the Serialize and Deserialize
-// impl for Script.
+// impl for Script so that I don't have to reimplement it. One idea is to impl generic on Script
+// but that feels like a hack for this scenario.
 
 /// Build the script piece by piece
 pub struct ScriptBuilder(Vec<u8>);
@@ -95,7 +97,8 @@ impl Deserialize for Script {
 		println!("Enter a raw script hex");
 		let hex = txio::user_read_hex(reader, None);
 
-		let data = txio::decode_hex_be(&hex)?;
+		// let data = txio::decode_hex_be(&hex)?;
+		let data = hex.decode_hex_be()?;
 		let len = data.len();
 		let mut stream = Cursor::new(data);
 
@@ -127,7 +130,8 @@ impl Deserialize for Script {
 
 	// TODO: I don't like that this code is repeated. How do I reuse?
 	fn as_asm(&self) -> String { 
-		let data = txio::decode_hex_be(&self.as_hex()).expect("uho ho");
+		// let data = txio::decode_hex_be(&self.as_hex()).expect("uho ho");
+		let data = self.as_hex().decode_hex_be().expect("uho ho");
 		let len = data.len();
 		let mut stream = Cursor::new(data);
 
@@ -258,8 +262,6 @@ impl fmt::LowerHex for Script {
     }
 }
 
-
-
 impl ScriptBuilder {
 	pub fn new() -> Self {
 		ScriptBuilder(vec![])	
@@ -274,8 +276,9 @@ impl ScriptBuilder {
 
 		// TODO: Not the best idea but it works for now
 		if code == opcodes::all::OP_INVALIDOPCODE {
-			let hex = txio::decode_hex_be(token).expect("Is this a proper script hash?");
-			self.push_script_hash(&hex);
+			// let hex = txio::decode_hex_be(token).expect("Is this a proper script hash?");
+			let hash = token.decode_hex_be().expect("Is this a proper script hash?");
+			self.push_script_hash(&hash);
 		} else {
 			self.push_opcode(code);
 		}
@@ -350,7 +353,10 @@ mod tests {
 
     #[test]
 	fn decode_script_1() {
-		let raw_script = "76a91414011f7254d96b819c76986c277d115efce6f7b58763ac67210394854aa6eab5b2a8122cc726e9dded053a2184d88256816826d6231c068d4a5b7c820120876475527c21030d417a46946384f88d5f3337267c5e579765875dc4daca813e21734b140639e752ae67a914b43e1b38138a41b37f7cd9a1d274bc63e3a9b5d188ac6868".to_string();
+		let raw_script = "76a91414011f7254d96b819c76986c277d115efce6f7b58763ac67210394854aa6eab5b2a\
+		8122cc726e9dded053a2184d88256816826d6231c068d4a5b7c820120876475527c21030d417a46946384f88d5f\
+		3337267c5e579765875dc4daca813e21734b140639e752ae67a914b43e1b38138a41b37f7cd9a1d274bc63e3a9b\
+		5d188ac6868".to_string();
 
 		let mut stream = Cursor::new(Vec::new());
 
@@ -365,7 +371,11 @@ mod tests {
 		};
 
 		assert_eq!(script.as_hex(), raw_script);
-		assert_eq!(script.as_asm(), "OP_DUP OP_HASH160 14011f7254d96b819c76986c277d115efce6f7b5 OP_EQUAL OP_IF OP_CHECKSIG OP_ELSE 0394854aa6eab5b2a8122cc726e9dded053a2184d88256816826d6231c068d4a5b OP_SWAP OP_SIZE 32 OP_EQUAL OP_NOTIF OP_DROP 2 OP_SWAP 030d417a46946384f88d5f3337267c5e579765875dc4daca813e21734b140639e7 2 OP_CHECKMULTISIG OP_ELSE OP_HASH160 b43e1b38138a41b37f7cd9a1d274bc63e3a9b5d1 OP_EQUALVERIFY OP_CHECKSIG OP_ENDIF OP_ENDIF".to_string())
+		assert_eq!(script.as_asm(), "OP_DUP OP_HASH160 14011f7254d96b819c76986c277d115efce6f7b5 \
+		OP_EQUAL OP_IF OP_CHECKSIG OP_ELSE 0394854aa6eab5b2a8122cc726e9dded053a2184d88256816826d623\
+		1c068d4a5b OP_SWAP OP_SIZE 32 OP_EQUAL OP_NOTIF OP_DROP 2 OP_SWAP 030d417a46946384f88d5f333\
+		7267c5e579765875dc4daca813e21734b140639e7 2 OP_CHECKMULTISIG OP_ELSE OP_HASH160 b43e1b38138\
+		a41b37f7cd9a1d274bc63e3a9b5d1 OP_EQUALVERIFY OP_CHECKSIG OP_ENDIF OP_ENDIF".to_string())
 	}
 
     #[test]
@@ -389,7 +399,8 @@ mod tests {
 	}
 
 	fn decode_script_3() {
-		let raw_script = "5121022afc20bf379bc96a2f4e9e63ffceb8652b2b6a097f63fbee6ecec2a49a48010e2103a767c7221e9f15f870f1ad9311f5ab937d79fcaeee15bb2c722bca515581b4c052ae".to_string();
+		let raw_script = "5121022afc20bf379bc96a2f4e9e63ffceb8652b2b6a097f63fbee6ecec2a49a48010e210\
+		3a767c7221e9f15f870f1ad9311f5ab937d79fcaeee15bb2c722bca515581b4c052ae".to_string();
 
 		let mut stream = Cursor::new(Vec::new());
 
@@ -404,6 +415,7 @@ mod tests {
 		};
 
 		assert_eq!(script.as_hex(), raw_script);
-		assert_eq!(script.as_asm(), "1 022afc20bf379bc96a2f4e9e63ffceb8652b2b6a097f63fbee6ecec2a49a48010e 03a767c7221e9f15f870f1ad9311f5ab937d79fcaeee15bb2c722bca515581b4c0 2 OP_CHECKMULTISIG".to_string())
+		assert_eq!(script.as_asm(), "1 022afc20bf379bc96a2f4e9e63ffceb8652b2b6a097f63fbee6ecec2a49a\
+		48010e 03a767c7221e9f15f870f1ad9311f5ab937d79fcaeee15bb2c722bca515581b4c0 2 OP_CHECKMULTISIG".to_string())
 	}
 }

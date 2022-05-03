@@ -1,45 +1,76 @@
-use std::fmt::write;
+use std::fmt::{write, LowerHex};
 use std::io::{Read, Cursor, Seek, SeekFrom, BufRead, Write, Error};
 use std::num::ParseIntError;
 
 use crate::Deserialize;
 use crate::script::{ScriptBuilder, Script};
 
-// ---- Conversions ----
+/// Discussion on Vec<u8> vs Box<[u8]>
+/// https://github.com/ipld/libipld/issues/36
+pub type HexBytes = Box<[u8]>;
 
-// Discussion on Box<[u8]> vs Box<[u8]>
-// https://github.com/ipld/libipld/issues/36
-pub fn decode_hex_le(s: &str) -> Result<Box<[u8]>, ParseIntError> {
-	(0..s.len())
-		.step_by(2)
-		.rev()
-		.map(|i| u8::from_str_radix(&s[i..i + 2], 16))
-		.collect()
+/// All data in the Bitcoin network is encoded in a specific format. This is done so that nodes can
+/// communicate with each other with a shared language. Encodable ensures that the data is encoded
+/// in the correct format taking care of endianness.
+pub trait Encodable {
+	/// Convert an array of bytes, which is in little endian, into a Hex string.
+	/// The most significant bit in little-endian is at the smallest memory address i.e. the
+	/// number 123 is stored as 321.
+	fn encode_hex_le(&self) -> String;
+	/// Convert an array of bytes, which is in big endian, into a Hex string.
+	fn encode_hex_be(&self) -> String;
 }
 
-/// Read a hex string into bytes
-pub fn decode_hex_be(s: &str) -> Result<Box<[u8]>, ParseIntError> {
-	(0..s.len())
-		.step_by(2)
-		.map(|i| u8::from_str_radix(&s[i..i + 2], 16))
-		.collect()
+/// Operations on data in the Bitcoin network are done at the byte level. For example, if a sha256
+/// needs to be calculated for a script, the hashing done on the hex string vs it done on the bytes
+/// produces different results. Decodable converts a string into Hex bytes taking care of
+/// endianness.
+pub trait Decodable {
+	/// Read a hex string into bytes in little-endian.
+	fn decode_hex_le(&self) -> Result<HexBytes, ParseIntError>;
+	/// Read a hex string into bytes in big-endian.
+	fn decode_hex_be(&self) -> Result<HexBytes, ParseIntError>;
 }
 
-pub fn encode_hex_le(bytes: &[u8]) -> String {
-	let mut s = String::with_capacity(bytes.len() * 2);
-	for &b in bytes.iter().rev() {
-		write(&mut s, format_args!("{:02x}", b)).unwrap();
+// TODO: Can this be broken?
+impl<T: Sized + LowerHex> Encodable for [T] {
+	fn encode_hex_le(&self) -> String {
+		let mut s = String::with_capacity(self.len() * 2);
+		for b in self.iter().rev() {
+			write(&mut s, format_args!("{:02x}", b)).unwrap();
+		}
+		s
 	}
-	s
+
+	fn encode_hex_be(&self) -> String {
+		let mut s = String::with_capacity(self.len() * 2);
+		for b in self {
+			write(&mut s, format_args!("{:02x}", b)).unwrap();
+		}
+		s
+	}
 }
 
-pub fn encode_hex_be(bytes: &[u8]) -> String {
-	let mut s = String::with_capacity(bytes.len() * 2);
-	for &b in bytes {
-		write(&mut s, format_args!("{:02x}", b)).unwrap();
+impl<T: Sized + ToString> Decodable for T {
+	fn decode_hex_le(&self) -> Result<HexBytes, ParseIntError> {
+		let s =  &self.to_string();
+		(0..s.len())
+			.step_by(2)
+			.rev()
+			.map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+			.collect()
 	}
-	s
+
+	/// Read a hex string into bytes
+	fn decode_hex_be(&self) -> Result<HexBytes, ParseIntError> {
+		let s =  &self.to_string();
+		(0..s.len())
+			.step_by(2)
+			.map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+			.collect()
+	}
 }
+
 
 // ---- Buffer reading ----
 
@@ -56,7 +87,7 @@ pub fn encode_hex_be(bytes: &[u8]) -> String {
  * ff -> 0000 0000 0000 0000 (255 + 8 bytes)
  * check bitcoin/src/serialize.h file
 */
-pub fn read_compact_size(stream: &mut Cursor<Box<[u8]>>) -> u64 {
+pub fn read_compact_size(stream: &mut Cursor<HexBytes>) -> u64 {
 	let  varint_size: u8 = read_u8_le(stream);
 	let size: u64;
 
@@ -79,7 +110,7 @@ pub fn read_compact_size(stream: &mut Cursor<Box<[u8]>>) -> u64 {
 	size
 }
 
-pub fn read_u8_le(stream: &mut Cursor<Box<[u8]>>) -> u8 {
+pub fn read_u8_le(stream: &mut Cursor<HexBytes>) -> u8 {
 	let mut bytes = [0; 1];
 	match stream.read(&mut bytes) {
 		Ok(_) => u8::from_le_bytes(bytes),
@@ -87,14 +118,14 @@ pub fn read_u8_le(stream: &mut Cursor<Box<[u8]>>) -> u8 {
 	}
 }
 
-pub fn read_u16_le(stream: &mut Cursor<Box<[u8]>>) -> u16 {
+pub fn read_u16_le(stream: &mut Cursor<HexBytes>) -> u16 {
 	let mut bytes = [0; 2];
 	match stream.read(&mut bytes) {
 		Ok(_) => u16::from_le_bytes(bytes),
 		Err(e) => panic!("{}", e)
 	}
 }
-pub fn read_u16_be(stream: &mut Cursor<Box<[u8]>>) -> u16 {
+pub fn read_u16_be(stream: &mut Cursor<HexBytes>) -> u16 {
 	let mut bytes = [0; 2];
 	match stream.read(&mut bytes) {
 		Ok(_) => u16::from_be_bytes(bytes),
@@ -102,7 +133,7 @@ pub fn read_u16_be(stream: &mut Cursor<Box<[u8]>>) -> u16 {
 	}
 }
 
-pub fn read_u32_le(stream: &mut Cursor<Box<[u8]>>) -> u32 {
+pub fn read_u32_le(stream: &mut Cursor<HexBytes>) -> u32 {
 	let mut bytes = [0; 4];
 	match stream.read(&mut bytes) {
 		Ok(_) => u32::from_le_bytes(bytes),
@@ -110,7 +141,7 @@ pub fn read_u32_le(stream: &mut Cursor<Box<[u8]>>) -> u32 {
 	}
 }
 
-pub fn read_u64_le(stream: &mut Cursor<Box<[u8]>>) -> u64 {
+pub fn read_u64_le(stream: &mut Cursor<HexBytes>) -> u64 {
 	let mut bytes = [0; 8];
 	match stream.read(&mut bytes) {
 		Ok(_) => u64::from_le_bytes(bytes),
@@ -118,31 +149,32 @@ pub fn read_u64_le(stream: &mut Cursor<Box<[u8]>>) -> u64 {
 	}
 }
 
-pub fn read_hex32_le(stream: &mut Cursor<Box<[u8]>>) -> String {
+pub fn read_hex32_le(stream: &mut Cursor<HexBytes>) -> String {
 	let mut bytes = [0; 4];
 	match stream.read(&mut bytes) {
-		Ok(_) => encode_hex_le(&bytes),
+		Ok(_) => bytes.encode_hex_le(),
 		Err(e) => panic!("{}", e)
 	}
 }
 
-pub fn read_hex256_le(stream: &mut Cursor<Box<[u8]>>) -> String {
+pub fn read_hex256_le(stream: &mut Cursor<HexBytes>) -> String {
 	let mut bytes = [0; 32];
 	match stream.read(&mut bytes) {
-		Ok(_) => encode_hex_le(&bytes),
+		Ok(_) => bytes.encode_hex_le(),
 		Err(e) => panic!("{}", e)
 	}
 }
 
-pub fn read_hex_var_be(stream: &mut Cursor<Box<[u8]>>, length: u64) -> Box<[u8]> {
+pub fn read_hex_var_be(stream: &mut Cursor<HexBytes>, length: u64) -> HexBytes {
 	let mut bytes = vec![0; length as usize];
 	match stream.read(&mut bytes) {
-		Ok(_) => decode_hex_be(&encode_hex_be(&bytes)).expect("Unable to read hex"),
+		// TODO: I'm sure there is a  better way to do this...
+		Ok(_) => bytes.encode_hex_be().decode_hex_be().expect("unable to read hex"),
 		Err(e) => panic!("{}", e)
 	}
 }
 
-pub fn unread(stream: &mut Cursor<Box<[u8]>>, length: i64) {
+pub fn unread(stream: &mut Cursor<HexBytes>, length: i64) {
 	match stream.seek(SeekFrom::Current(length)) {
 		Ok(_) => (),
 		Err(e) => panic!("{}", e)
@@ -223,7 +255,11 @@ pub fn user_read_script_hex<R: BufRead>(reader: R) -> Script {
 	let mut line = String::new();
 	match read_line(reader, &mut line) {
 		Ok(_) => {
-			Script(decode_hex_be(line.trim_end()).expect("Is the script_pub_key/script_sig correct?"))
+			Script(line
+				   .trim_end()
+				   .decode_hex_be()
+				   .expect("Is the script_pub_key/script_sig correct?")
+			)
 		},
 		Err(e) => panic!("{}", e)
 	}
@@ -292,7 +328,7 @@ pub fn write_u64_le(stream: &mut Cursor<Vec<u8>>, val: u64) {
 
 pub fn write_hex_le(stream: &mut Cursor<Vec<u8>>, val: String, with_varint: bool) {
 	if with_varint { write_varint(stream, val.len() as u64 / 2) }
-	let bytes = decode_hex_le(&val).expect("Something wrong with the hex");
+	let bytes = val.decode_hex_le().expect("Something wrong with the hex");
 	match stream.write(&bytes) {
 		Ok(_) => {},
 		Err(e) => panic!("{}", e)
@@ -301,7 +337,7 @@ pub fn write_hex_le(stream: &mut Cursor<Vec<u8>>, val: String, with_varint: bool
 
 pub fn write_hex_be(stream: &mut Cursor<Vec<u8>>, val: String, with_varint: bool) {
 	if with_varint { write_varint(stream, val.len() as u64 / 2) }
-	let bytes = decode_hex_be(&val).expect("Something wrong with the hex");
+	let bytes = val.decode_hex_be().expect("Something wrong with the hex");
 	match stream.write(&bytes) {
 		Ok(_) => {},
 		Err(e) => panic!("{}", e)

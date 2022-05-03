@@ -3,6 +3,7 @@
 use std::error::Error;
 use std::io::{BufRead, Cursor, self, Seek, Read};
 use crate::script::Script;
+use crate::txio::{Encodable, Decodable, HexBytes};
 use crate::{Serialize, txio, Deserialize};
 use serde_json::Value;
 use derivative::Derivative;
@@ -157,7 +158,8 @@ impl Serialize for Transaction {
 
 		let mut raw_transaction: Vec<u8> = Vec::new();
 		stream.read_to_end(&mut raw_transaction).expect("Couldn't read till end");
-		txio::encode_hex_be(&raw_transaction)
+		raw_transaction.encode_hex_be()
+		// txio::encode_hex_be(&raw_transaction)
 	}
 
 	fn as_bytes(&self) -> &[u8] {
@@ -178,8 +180,9 @@ impl Deserialize for Transaction {
 		println!("-------------------");
 
 		// convert to bytes
-		let result: Box<[u8]> = txio::decode_hex_be(&raw_transaction)?;
-		let mut stream = Cursor::new(result);
+		// let result: Box<[u8]> = txio::decode_hex_be(&raw_transaction)?;
+		let data: HexBytes = raw_transaction.decode_hex_be()?;
+		let mut stream = Cursor::new(data);
 
 		// version: always 4 bytes long
 		let version = txio::read_u32_le(&mut stream);
@@ -257,7 +260,8 @@ impl Deserialize for Transaction {
 				let stack_count = txio::read_compact_size(&mut stream);
 				for _ in 0..stack_count {
 					let length = txio::read_compact_size(&mut stream);
-					let witness = txio::encode_hex_be(&txio::read_hex_var_be(&mut stream, length));
+					// let witness = txio::encode_hex_be(&txio::read_hex_var_be(&mut stream, length));
+					let witness = txio::read_hex_var_be(&mut stream, length).encode_hex_be();
 					stack.0.push(witness);
 				}
 				_witness_data.push(stack);
@@ -315,7 +319,8 @@ fn get_prevout(previous_tx: &str, index: u32) -> Result<Output, Box<dyn Error>> 
 
 	let amount = prevouts[index as usize]["value"].as_u64().unwrap_or(0); 
 	let hex = prevouts[index as usize]["scriptpubkey"].to_string().replace("\"", "");
-	let script_pub_key = Script(txio::decode_hex_be(&hex)?);
+	// let script_pub_key = Script(txio::decode_hex_be(&hex)?);
+	let script_pub_key = Script(hex.decode_hex_be()?);
 
 	let output = Output {
 		amount,
@@ -510,9 +515,8 @@ mod tests {
 			previous_tx: "889c2561c6caf5f31af96162b17b196cc88a81f04f5f4a9af9052529c4f71ae1".to_string(),
 			tx_index: 0,
 			script_sig: Script::from("473044022045c7199ffc8069a498135b7bb2678da16e8b5d49455b4a7ace7\
-									 55928c9339c7a022051cbf72024cf273444640f7b993b2bf3d329124b03e67\
-									 44edaed5158a30e29b8012103fd9bc1e9803e739720e0f1c63e580a94656c7\
-									 d0cab6cd083f0c0dfb221b90662"),
+			55928c9339c7a022051cbf72024cf273444640f7b993b2bf3d329124b03e6744edaed5158a30e29b8012103\
+			fd9bc1e9803e739720e0f1c63e580a94656c7d0cab6cd083f0c0dfb221b90662"),
 			sequence: "ffffffff".to_string(),
 			prevout: None,
 		}];

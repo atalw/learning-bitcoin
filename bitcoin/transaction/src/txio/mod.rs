@@ -74,7 +74,66 @@ impl<T: Sized + ToString> Decodable for T {
 
 // ---- Buffer reading ----
 
+macro_rules! impl_read_buffer_le {
+	($ty:ty, $len:expr, $fn_name:ident) => {
+		pub fn $fn_name(stream: &mut Cursor<HexBytes>) -> $ty {
+			let mut bytes = [0; $len];
+			match stream.read(&mut bytes) {
+				Ok(_) => <$ty>::from_le_bytes(bytes),
+				Err(e) => panic!("{}", e)
+			}
+		}
+	};
+}
+
+macro_rules! impl_read_buffer_be {
+	($ty:ty, $len:expr, $fn_name:ident) => {
+		pub fn $fn_name(stream: &mut Cursor<HexBytes>) -> $ty {
+			let mut bytes = [0; $len];
+			match stream.read(&mut bytes) {
+				Ok(_) => <$ty>::from_be_bytes(bytes),
+				Err(e) => panic!("{}", e)
+			}
+		}
+	};
+}
+
+macro_rules! impl_read_hex_le {
+	($len:expr, $fn_name:ident) => {
+		pub fn $fn_name(stream: &mut Cursor<HexBytes>) -> String {
+			let mut bytes = [0; $len];
+			match stream.read(&mut bytes) {
+				Ok(_) => bytes.encode_hex_le(),
+				Err(e) => panic!("{}", e)
+			}
+		}
+	};
+}
+
+impl_read_buffer_le!(u8, 1, read_u8_le);
+impl_read_buffer_le!(u16, 2, read_u16_le);
+impl_read_buffer_le!(u32, 4, read_u32_le);
+impl_read_buffer_le!(u64, 8, read_u64_le);
+
+impl_read_buffer_be!(u8, 1, read_u8_be);
+impl_read_buffer_be!(u16, 2, read_u16_be);
+impl_read_buffer_be!(u32, 4, read_u32_be);
+impl_read_buffer_be!(u64, 8, read_u64_be);
+
+impl_read_hex_le!(4, read_hex32_le);
+impl_read_hex_le!(32, read_hex256_le);
+
+pub fn read_hex_var_be(stream: &mut Cursor<HexBytes>, length: u64) -> HexBytes {
+	let mut bytes = vec![0; length as usize];
+	match stream.read(&mut bytes) {
+		// TODO: I'm sure there is a  better way to do this...
+		Ok(_) => bytes.encode_hex_be().decode_hex_be().expect("unable to read hex"),
+		Err(e) => panic!("{}", e)
+	}
+}
+
 /**
+ *
  * Compact Size
  * https://en.bitcoin.it/wiki/Protocol_documentation#Variable_length_integer
  * size <  253        -- 1 byte
@@ -108,70 +167,6 @@ pub fn read_compact_size(stream: &mut Cursor<HexBytes>) -> u64 {
 
 	assert!(size != 0);
 	size
-}
-
-pub fn read_u8_le(stream: &mut Cursor<HexBytes>) -> u8 {
-	let mut bytes = [0; 1];
-	match stream.read(&mut bytes) {
-		Ok(_) => u8::from_le_bytes(bytes),
-		Err(e) => panic!("{}", e)
-	}
-}
-
-pub fn read_u16_le(stream: &mut Cursor<HexBytes>) -> u16 {
-	let mut bytes = [0; 2];
-	match stream.read(&mut bytes) {
-		Ok(_) => u16::from_le_bytes(bytes),
-		Err(e) => panic!("{}", e)
-	}
-}
-pub fn read_u16_be(stream: &mut Cursor<HexBytes>) -> u16 {
-	let mut bytes = [0; 2];
-	match stream.read(&mut bytes) {
-		Ok(_) => u16::from_be_bytes(bytes),
-		Err(e) => panic!("{}", e)
-	}
-}
-
-pub fn read_u32_le(stream: &mut Cursor<HexBytes>) -> u32 {
-	let mut bytes = [0; 4];
-	match stream.read(&mut bytes) {
-		Ok(_) => u32::from_le_bytes(bytes),
-		Err(e) => panic!("{}", e)
-	}
-}
-
-pub fn read_u64_le(stream: &mut Cursor<HexBytes>) -> u64 {
-	let mut bytes = [0; 8];
-	match stream.read(&mut bytes) {
-		Ok(_) => u64::from_le_bytes(bytes),
-		Err(e) => panic!("{}", e)
-	}
-}
-
-pub fn read_hex32_le(stream: &mut Cursor<HexBytes>) -> String {
-	let mut bytes = [0; 4];
-	match stream.read(&mut bytes) {
-		Ok(_) => bytes.encode_hex_le(),
-		Err(e) => panic!("{}", e)
-	}
-}
-
-pub fn read_hex256_le(stream: &mut Cursor<HexBytes>) -> String {
-	let mut bytes = [0; 32];
-	match stream.read(&mut bytes) {
-		Ok(_) => bytes.encode_hex_le(),
-		Err(e) => panic!("{}", e)
-	}
-}
-
-pub fn read_hex_var_be(stream: &mut Cursor<HexBytes>, length: u64) -> HexBytes {
-	let mut bytes = vec![0; length as usize];
-	match stream.read(&mut bytes) {
-		// TODO: I'm sure there is a  better way to do this...
-		Ok(_) => bytes.encode_hex_be().decode_hex_be().expect("unable to read hex"),
-		Err(e) => panic!("{}", e)
-	}
 }
 
 pub fn unread(stream: &mut Cursor<HexBytes>, length: i64) {

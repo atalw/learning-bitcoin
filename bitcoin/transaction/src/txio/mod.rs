@@ -293,16 +293,28 @@ impl<W: Write> WriteExt for W {
 	}
 }
 
-pub trait UserReadExt<R: BufRead> {
+/// Extensions on BufRead to accept user input. BufRead so that mock inputs can be simulated for
+/// testing purposes. This is different from ReadExt in that each function reads a line as an input
+/// and repeats until a valid input is parsed.
+pub trait UserReadExt {
+	/// Read a 32-bit unsigned integer.
 	fn user_read_u32(&mut self) -> u32;
+	/// Read a 64-bit unsigned integer.
 	fn user_read_u64(&mut self) -> u64;
 
+	/// Read a 32-bit (4 byte) hex string and return a bytes array.
 	fn user_read_hex32(&mut self) -> HexBytes;
+	/// Read a 256-bit (32 byte) hex string and return a bytes array.
 	fn user_read_hex256(&mut self) -> HexBytes;
+	/// Read a variable length hex string and return a bytes array.
 	fn user_read_hex_var(&mut self) -> HexBytes;
 
+	/// Read a "true" or "false" input and return a bool.
 	fn user_read_bool(&mut self) -> bool;
 
+	/// Read an assembly script with opcodes until a valid script is parsed.
+	/// Note: The script needs to be verbose in that if the script contains a number 1, OP_1 needs
+	/// to be entered otherwise it won't parse correctly.
 	fn user_read_asm(&mut self) -> Script;
 }
 
@@ -345,8 +357,7 @@ macro_rules! user_read_hex {
 	};
 }
 
-impl<R: BufRead> UserReadExt<R> for R {
-
+impl<R: BufRead> UserReadExt for R {
 	user_read_int!(u32, user_read_u32);
 	user_read_int!(u64, user_read_u64);
 

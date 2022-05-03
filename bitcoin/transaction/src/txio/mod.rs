@@ -74,7 +74,7 @@ impl<T: Sized + ToString> Decodable for T {
 
 // ---- Buffer reading ----
 
-macro_rules! impl_read_buffer_le {
+macro_rules! impl_read_int_le {
 	($ty:ty, $len:expr, $fn_name:ident) => {
 		pub fn $fn_name(stream: &mut Cursor<HexBytes>) -> $ty {
 			let mut bytes = [0; $len];
@@ -86,7 +86,7 @@ macro_rules! impl_read_buffer_le {
 	};
 }
 
-macro_rules! impl_read_buffer_be {
+macro_rules! impl_read_int_be {
 	($ty:ty, $len:expr, $fn_name:ident) => {
 		pub fn $fn_name(stream: &mut Cursor<HexBytes>) -> $ty {
 			let mut bytes = [0; $len];
@@ -110,15 +110,15 @@ macro_rules! impl_read_hex_le {
 	};
 }
 
-impl_read_buffer_le!(u8, 1, read_u8_le);
-impl_read_buffer_le!(u16, 2, read_u16_le);
-impl_read_buffer_le!(u32, 4, read_u32_le);
-impl_read_buffer_le!(u64, 8, read_u64_le);
+impl_read_int_le!(u8, 1, read_u8_le);
+impl_read_int_le!(u16, 2, read_u16_le);
+impl_read_int_le!(u32, 4, read_u32_le);
+impl_read_int_le!(u64, 8, read_u64_le);
 
-impl_read_buffer_be!(u8, 1, read_u8_be);
-impl_read_buffer_be!(u16, 2, read_u16_be);
-impl_read_buffer_be!(u32, 4, read_u32_be);
-impl_read_buffer_be!(u64, 8, read_u64_be);
+impl_read_int_be!(u8, 1, read_u8_be);
+impl_read_int_be!(u16, 2, read_u16_be);
+impl_read_int_be!(u32, 4, read_u32_be);
+impl_read_int_be!(u64, 8, read_u64_be);
 
 impl_read_hex_le!(4, read_hex32_le);
 impl_read_hex_le!(32, read_hex256_le);
@@ -289,37 +289,35 @@ where
     reader.read_line(line)
 }
 
-pub fn write_u16_le(stream: &mut Cursor<Vec<u8>>, val: u16) {
-	let bytes = val.to_le_bytes();
-	match stream.write(&bytes) {
-		Ok(_) => {},
-		Err(e) => panic!("{}", e)
-	}
+macro_rules! impl_write_int_le {
+	($ty:ty, $fn_name:ident) => {
+		pub fn $fn_name(stream: &mut Cursor<Vec<u8>>, val: $ty) -> usize {
+			let bytes = val.to_le_bytes();
+			match stream.write(&bytes) {
+				Ok(n) => n,
+				Err(e) => panic!("{}", e)
+			}
+		}
+	};
 }
 
-pub fn write_u16_be(stream: &mut Cursor<Vec<u8>>, val: u16) {
-	let bytes = val.to_be_bytes();
-	match stream.write(&bytes) {
-		Ok(_) => {},
-		Err(e) => panic!("{}", e)
-	}
+macro_rules! impl_write_int_be {
+	($ty:ty, $fn_name:ident) => {
+		pub fn $fn_name(stream: &mut Cursor<Vec<u8>>, val: $ty) -> usize {
+			let bytes = val.to_be_bytes();
+			match stream.write(&bytes) {
+				Ok(n) => n,
+				Err(e) => panic!("{}", e)
+			}
+		}
+	};
 }
 
-pub fn write_u32_le(stream: &mut Cursor<Vec<u8>>, val: u32) {
-	let bytes = val.to_le_bytes();
-	match stream.write(&bytes) {
-		Ok(_) => {},
-		Err(e) => panic!("{}", e)
-	}
-}
+impl_write_int_le!(u16, write_u16_le);
+impl_write_int_le!(u32, write_u32_le);
+impl_write_int_le!(u64, write_u64_le);
 
-pub fn write_u64_le(stream: &mut Cursor<Vec<u8>>, val: u64) {
-	let bytes = val.to_le_bytes();
-	match stream.write(&bytes) {
-		Ok(_) => {},
-		Err(e) => panic!("{}", e)
-	}
-}
+impl_write_int_be!(u16, write_u16_be);
 
 pub fn write_hex_le(stream: &mut Cursor<Vec<u8>>, val: String, with_varint: bool) {
 	if with_varint { write_varint(stream, val.len() as u64 / 2) }

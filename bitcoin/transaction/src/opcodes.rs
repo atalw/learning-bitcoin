@@ -8,6 +8,7 @@ pub struct All {
 	pub code: u8,
 }
 
+#[allow(dead_code)]
 pub mod all {
 	//! Constants associated with All type
 	use super::All;
@@ -636,9 +637,9 @@ impl All {
 		self.code
 	}
 
-	pub fn into_string(self) -> String {
-		format!("OP_{:?}", self)	
-	}
+	// pub fn into_string(self) -> String {
+	//     format!("OP_{:?}", self)	
+	// }
 }
 
 impl From<u8> for All {

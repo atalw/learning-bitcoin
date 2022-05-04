@@ -13,6 +13,8 @@ There are essentially 4 main features:
 3. **Decode a raw transaction** - given a raw transaction in Bitcoin-encoded hex, decode and pretty-print it so that it is human-readable. Supports Segwit transactions.
 4. **Decode a script** - given a raw script in hex, decode and pretty-print it so that it is readable. Supports all opcodes and script types.
 
+![](demo.gif)
+
 ## File structure
 - `main.rs` - entry point for the user-facing cli.
 - `txio.rs` - in-memory buffers are used to interact with raw data so code in this file contains abstractions of reading and writing, taking care of endianness.

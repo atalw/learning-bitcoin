@@ -188,13 +188,6 @@ pub enum ScriptType {
 	Custom
 }
 
-pub struct ScriptAsm(Vec<ScriptAsmTokens>);
-
-pub enum ScriptAsmTokens {
-	Opcode,
-	Hex,
-}
-
 impl ScriptSig {
 	pub fn new(bytes: HexBytes) -> Self {
 		ScriptSig {

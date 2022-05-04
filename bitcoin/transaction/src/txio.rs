@@ -1,7 +1,7 @@
 use std::fmt::{write, LowerHex};
 use std::io::{Seek, SeekFrom, BufRead, Write, Error, ErrorKind};
 use std::num::ParseIntError;
-use crate::script::{ScriptBuilder, Script, ScriptAsm, ScriptPubKey};
+use crate::script::{ScriptBuilder, Script, ScriptPubKey};
 
 // TODO:
 // - Custom errors
@@ -411,7 +411,7 @@ impl<R: BufRead> UserReadExt for R {
 }
 
 trait StrExt {
-	// FIXME: return type
+	// FIXME: return asm type
 	fn parse_asm(&self) -> Result<HexBytes, Box<dyn std::error::Error>>;
 }
 
@@ -421,15 +421,15 @@ impl StrExt for str {
 
 		let mut script_builder = ScriptBuilder::new();
 		for token in &tokens {
-			println!("{:?}", token);
 			script_builder.push(token)?;
 		}
 		let script: ScriptPubKey = script_builder.into_script();
 		println!("Parsed script is: {}", script.as_asm());
+		// FIXME: this fails for OP_{integer}
 		if script.as_asm() == self {
 			Ok(script.script)
 		} else {
-			Err(Box::new(Error::new(ErrorKind::InvalidInput, "Uh oh! The parsed script does not match.")))
+			Err(Box::new(Error::new(ErrorKind::InvalidInput, "Uh oh! The parsed script does not match")))
 		}
 	}
 }

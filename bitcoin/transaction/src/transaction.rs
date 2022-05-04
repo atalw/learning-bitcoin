@@ -51,9 +51,6 @@ pub struct ExtraInfo {
 	tx_size: u64,
 }
 
-/// Build a transaction piece by piece
-// struct TransactionBuilder(Vec<u8>);
-
 impl Serialize for Transaction {
 	fn encode_raw<R: BufRead>(mut reader: R) -> Self {
 		println!("1. Version? (enter 1 or 2): ");

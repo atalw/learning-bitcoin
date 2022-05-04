@@ -6,29 +6,37 @@ use crate::txio::{Encodable, Decodable, HexBytes, ReadExt, UserReadExt};
 use crate::{Serialize, opcodes, Deserialize, hash};
 use std::fmt;
 
-// Why box? https://doc.rust-lang.org/book/ch15-01-box.html
-// #[derive(PartialEq)]
-// pub struct Script(pub HexBytes);
-
 // TODO: Q. How do I organize the code so that I can have a ScriptPubKey and ScriptSig type with
 // different fields but they both are Scripts? I want them to inherit the Serialize and Deserialize
 // impl for Script so that I don't have to reimplement it. Not sure how to type limit a generic
-// impl.
+// impl to achieve this.
+// Ans 1. I've created a Script trait and implementing it on ScriptPubKey and ScriptSig using a
+// macro. It's effectively writing the code twice though. Is there a better way to do this?
 
-// Script is the language which both ScriptSig and ScriptPubKey use.
-
-/// Defines the shared behaviour of ScripSig and ScriptPubKey.
+/// Script is the programming language used in Bitcoin to construct a ScriptSig and ScriptPubKey.
+/// While the semantics of the language haven't been handled yet, parsing to and from has been
+/// implemented.
 pub trait Script {
+	/// Convert hex-formatted bytes into a Script type.
 	fn from_bytes(bytes: HexBytes) -> Self where Self: Sized;
+	/// Convert a hex string into a Script type.
 	fn from_str(hex: &str) -> Self where Self: Sized;
 
-	fn new_p2sh(public_key: HexBytes) -> Self where Self: Sized;
+	/// Create a new Pay-to-Script-Hash (P2SH) type script given an original script. This function does a hash160 of
+	/// the provided raw script before generating the P2SH script.
+	fn new_p2sh(original_script: HexBytes) -> Self where Self: Sized;
+	/// Create a new Pay-to-Public-Key-Hash (P2PKH) type script given a public key.
 	fn new_p2pkh(public_key: HexBytes) -> Self where Self: Sized;
 
+	/// Checks whether a script pubkey is a P2SH output.
 	fn is_p2sh(&self) -> bool;
+	/// Checks whether a script pubkey is a P2PKH output.
 	fn is_p2pkh(&self) -> bool;
 
+	/// Generate an Base58 encoded address of a given script. 
+	/// Note: at the moment, this only generates an address for P2SH and P2PKH script types.
 	fn get_address(&self) -> Option<String>;
+	/// Determine the script type.
 	fn get_type(&self) -> ScriptType;
 
 	/// Creates an assembly-formatted string of the input Script. Right now this is only used for
@@ -71,7 +79,6 @@ macro_rules! impl_script_for {
 				script_builder.into_script()
 			}
 
-			/// Checks whether a script pubkey is a P2SH output.
 			#[inline]
 			fn is_p2sh(&self) -> bool {
 				self.script.len() == 23
@@ -80,7 +87,6 @@ macro_rules! impl_script_for {
 					&& self.script[22] == opcodes::all::OP_EQUAL.into_u8()
 			}
 
-			/// Checks whether a script pubkey is a P2PKH output.
 			#[inline]
 			fn is_p2pkh(&self) -> bool {
 				self.script.len() == 25
@@ -112,7 +118,7 @@ macro_rules! impl_script_for {
 					None
 				}
 			}
-			/// Determine the Script type
+
 			fn get_type(&self) -> ScriptType {
 				if self.is_p2sh() {
 					ScriptType::P2SH
@@ -153,9 +159,7 @@ macro_rules! impl_script_for {
 							parsed.push_str(&format!("{:02x?} ", opcode));
 						}
 				}
-
 				parsed.trim_end().to_string()
-
 			}
 		}
 	};
@@ -164,16 +168,24 @@ macro_rules! impl_script_for {
 impl_script_for!(ScriptSig);
 impl_script_for!(ScriptPubKey);
 
-/// Script signatures 
+/// Script Signatures are the unlocking script provided with an input that satisfies the conditions
+/// placed by the ScriptPubKey.
 pub struct ScriptSig {
 	pub script: HexBytes
 }
 
-/// Script pub key
+/// Script public keys are the locking script put on an output which prevents others from spending
+/// it.
 pub struct ScriptPubKey {
 	pub script: HexBytes,
 	address: Option<String>,
 	script_type: Option<ScriptType>
+}
+
+pub enum ScriptType {
+	P2SH,
+	P2PKH,
+	Custom
 }
 
 pub struct ScriptAsm(Vec<ScriptAsmTokens>);
@@ -183,21 +195,27 @@ pub enum ScriptAsmTokens {
 	Hex,
 }
 
-pub enum ScriptType {
-	P2SH,
-	P2PKH,
-	Custom
-}
-
-impl PartialEq for ScriptSig {
-    fn eq(&self, other: &ScriptSig) -> bool {
-		self.script == other.script
+impl ScriptSig {
+	pub fn new(bytes: HexBytes) -> Self {
+		ScriptSig {
+			script: bytes,
+		}
 	}
 }
 
-impl PartialEq for ScriptPubKey {
-    fn eq(&self, other: &ScriptPubKey) -> bool {
-		self.script == other.script
+impl ScriptPubKey {
+	// FIXME: This is a hack because of a poor architectural choice. I have to instantiate a script 
+	// with None address and script_type first. What is the best way to fix this?
+	pub fn new(bytes: HexBytes) -> Self {
+		let mut script = ScriptPubKey { 
+			script: bytes,
+			address: None,
+			script_type: None
+		};
+
+		script.address = script.get_address();
+		script.script_type = Some(script.get_type());
+		script
 	}
 }
 
@@ -296,30 +314,18 @@ impl_deserialize_for!(ScriptSig);
 impl_deserialize_for!(ScriptPubKey);
 
 
-impl ScriptSig {
-	pub fn new(bytes: HexBytes) -> Self {
-		ScriptSig {
-			script: bytes,
-		}
+impl PartialEq for ScriptSig {
+    fn eq(&self, other: &ScriptSig) -> bool {
+		self.script == other.script
 	}
 }
 
-impl ScriptPubKey {
-	// TODO: This is a hack because of a poor architectural choice. I have to instantiate a script 
-	// with None address and script_type first. What is the best way to fix this?
-	pub fn new(bytes: HexBytes) -> Self {
-		let mut script = ScriptPubKey { 
-			script: bytes,
-			address: None,
-			script_type: None
-		};
-
-		script.address = script.get_address();
-		script.script_type = Some(script.get_type());
-		script
+impl PartialEq for ScriptPubKey {
+    fn eq(&self, other: &ScriptPubKey) -> bool {
+		self.script == other.script
 	}
-
 }
+
 
 impl fmt::Debug for ScriptSig {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -341,7 +347,7 @@ impl fmt::Debug for ScriptPubKey {
 		f.write_str("\n")?;
 		f.write_str("\thex: ")?;
 		write!(f, "\"{}\"", self.as_hex())?;
-		match self.get_address() {
+		match &self.address {
 			Some(s) => {
 				f.write_str("\n")?;
 				f.write_str("\taddress: ")?;
@@ -351,27 +357,16 @@ impl fmt::Debug for ScriptPubKey {
 		}
 		f.write_str("\n")?;
 		f.write_str("\ttype: ")?;
-		write!(f, "\"{}\"", self.get_type())?;
+		match &self.script_type {
+			Some(t) => {
+				f.write_str("\n")?;
+				f.write_str("\taddress: ")?;
+				write!(f, "\"{}\"", t)?;
+			},
+			None => {}
+		}
 		f.write_str("\n}")
 	}
-}
-
-impl fmt::LowerHex for ScriptSig {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for &ch in self.script.iter() {
-            write!(f, "{:02x}", ch)?;
-        }
-        Ok(())
-    }
-}
-
-impl fmt::LowerHex for ScriptPubKey {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for &ch in self.script.iter() {
-            write!(f, "{:02x}", ch)?;
-        }
-        Ok(())
-    }
 }
 
 /// Build the script piece by piece

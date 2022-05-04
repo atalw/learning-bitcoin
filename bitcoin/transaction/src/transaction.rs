@@ -45,7 +45,7 @@ pub struct Output {
 #[derive(Debug, PartialEq)]
 pub struct WitnessStack(Vec<String>);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct ExtraInfo {
 	miner_fee: u64,
 	tx_size: u64,
@@ -154,10 +154,6 @@ impl Serialize for Transaction {
 		let mut raw_transaction: Vec<u8> = Vec::new();
 		stream.read_to_end(&mut raw_transaction).expect("Couldn't read till end");
 		raw_transaction.encode_hex_be()
-	}
-
-	fn as_bytes(&self) -> HexBytes {
-		todo!()
 	}
 }
 
@@ -288,6 +284,10 @@ impl Deserialize for Transaction {
 		};
 
 		Ok(transaction)
+	}
+
+	fn as_bytes(&self) -> HexBytes {
+		todo!()
 	}
 }
 

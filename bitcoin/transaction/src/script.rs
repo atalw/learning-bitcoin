@@ -262,10 +262,6 @@ macro_rules!  impl_serialize_for {
 			fn as_hex(&self) -> String {
 				self.script.encode_hex_be()
 			}
-
-			fn as_bytes(&self) -> HexBytes {
-				self.script.clone()
-			}
 		}
 	};
 }
@@ -304,6 +300,10 @@ macro_rules! impl_deserialize_for {
 						}
 				}
 				Ok(script_builder.into_script())
+			}
+
+			fn as_bytes(&self) -> HexBytes {
+				self.script.clone()
 			}
 		}
 	};

@@ -1,9 +1,7 @@
-/// Code help from https://github.com/rust-bitcoin/rust-bitcoin/blob/master/src/blockdata/script.rs
-
 use std::error::Error;
 use std::io::{BufRead, Cursor, self, Seek, Read};
-use crate::script::Script;
-use crate::txio::{Encodable, Decodable, ReadExt, WriteExt, UserReadExt};
+use crate::script::{Script, ScriptSig, ScriptPubKey};
+use crate::txio::{Encodable, Decodable, ReadExt, WriteExt, UserReadExt, HexBytes};
 use crate::{Serialize, Deserialize};
 use derivative::Derivative;
 
@@ -30,7 +28,7 @@ pub struct Input {
 	/// Index of an output
 	tx_index: u32,
 	/// <signature> <original script>
-	script_sig: Script,
+	script_sig: ScriptSig,
 	/// Relative locktime of the input
 	sequence: String,
 	/// Previous output
@@ -41,7 +39,7 @@ pub struct Input {
 #[derive(Debug, PartialEq)]
 pub struct Output {
 	amount: u64,
-	script_pub_key: Script,
+	script_pub_key: ScriptPubKey,
 }
 
 #[derive(Debug, PartialEq)]
@@ -57,7 +55,7 @@ pub struct ExtraInfo {
 // struct TransactionBuilder(Vec<u8>);
 
 impl Serialize for Transaction {
-	fn new<R: BufRead>(mut reader: R) -> Self {
+	fn encode_raw<R: BufRead>(mut reader: R) -> Self {
 		println!("1. Version? (enter 1 or 2): ");
 		let version = reader.user_read_u32();
 		println!("2. Segwit? (enter true or false)");
@@ -72,7 +70,7 @@ impl Serialize for Transaction {
 			println!("---- Output index:");
 			let tx_index = reader.user_read_u32();
 			println!("---- Script_sig:");
-			let script_sig = Script::new(&mut reader);
+			let script_sig = ScriptSig::encode_raw(&mut reader);
 			println!("---- Sequence (in hex):");
 			let sequence = reader.user_read_hex32().encode_hex_be();
 			let prevout = None;
@@ -94,7 +92,7 @@ impl Serialize for Transaction {
 			println!("---- Amount (in sats):");
 			let amount = reader.user_read_u64();
 			println!("---- Script pubkey:");
-			let script_pub_key = Script::new(&mut reader);
+			let script_pub_key = ScriptPubKey::encode_raw(&mut reader);
 
 			outputs.push(Output {
 				amount,
@@ -131,7 +129,7 @@ impl Serialize for Transaction {
 		for input in &self.inputs {
 			stream.write_hex(input.previous_tx.decode_hex_le().expect("shouldn't fail"), false);
 			stream.write_u32_le(input.tx_index);
-			stream.write_hex(input.script_sig.0.clone(), true);
+			stream.write_hex(input.script_sig.script.clone(), true);
 			stream.write_hex(input.sequence.decode_hex_le().expect("shouldn't fail"), false);
 		}
 
@@ -139,7 +137,7 @@ impl Serialize for Transaction {
 
 		for output in &self.outputs {
 			stream.write_u64_le(output.amount);
-			stream.write_hex(output.script_pub_key.0.clone(), true);
+			stream.write_hex(output.script_pub_key.script.clone(), true);
 		}
 
 		if let Some(witness_data) = self.witness_data.as_ref() {
@@ -161,17 +159,14 @@ impl Serialize for Transaction {
 		raw_transaction.encode_hex_be()
 	}
 
-	fn as_bytes(&self) -> &[u8] {
+	fn as_bytes(&self) -> HexBytes {
 		todo!()
 	}
 }
 
 impl Deserialize for Transaction {
-	fn decode_raw<R: BufRead>(mut reader: R) -> Result<Self, Box<dyn Error>> {
-		println!("Enter a raw transaction hex");
-		let raw_transaction_bytes = reader.user_read_hex_var();
-
-		let mut stream = Cursor::new(raw_transaction_bytes);
+	fn decode_raw(bytes: HexBytes) -> Result<Self, Box<dyn Error>> {
+		let mut stream = Cursor::new(bytes);
 
 		// version: always 4 bytes long
 		let version = stream.read_u32_le()?;
@@ -194,11 +189,11 @@ impl Deserialize for Transaction {
 			let tx_index = stream.read_u32_le()?;
 			// question: why are there n extra bytes in script_sig? in/out_script_length specifies it
 			let in_script_length = stream.read_compact_size()?;
-			let script_sig: Script;
+			let script_sig;
 			if in_script_length == 0 {
-				script_sig = Script::from("00");
+				script_sig = ScriptSig::from_str("00");
 			} else {
-				script_sig = Script(stream.read_hex_var(in_script_length)?);
+				script_sig = ScriptSig::from_bytes(stream.read_hex_var(in_script_length)?);
 			}
 			let sequence = stream.read_hex32()?.encode_hex_le();
 			let prevout = match get_prevout(&previous_tx, tx_index) {
@@ -226,7 +221,7 @@ impl Deserialize for Transaction {
 		for _ in 0..out_counter {
 			let amount = stream.read_u64_le()?;
 			let out_script_length = stream.read_compact_size()?;
-			let script_pub_key = Script(stream.read_hex_var(out_script_length)?);
+			let script_pub_key = ScriptPubKey::from_bytes(stream.read_hex_var(out_script_length)?);
 
 			let output = Output {
 				amount,
@@ -244,7 +239,7 @@ impl Deserialize for Transaction {
 			for i in 0..in_counter {
 				// If a txin is not associated with any witness data, its corresponding witness 
 				// field is an exact 0x00, indicating that the number of witness stack items is zero.
-				if inputs[i as usize].script_sig == Script::from("00") { continue }
+				if inputs[i as usize].script_sig == ScriptSig::from_str("00") { continue }
 				let mut stack = WitnessStack(Vec::new());
 				let stack_count = stream.read_compact_size()?;
 				for _ in 0..stack_count {
@@ -308,7 +303,7 @@ fn get_prevout(previous_tx: &str, index: u32) -> Result<Output, Box<dyn Error>> 
 
 	let amount = prevouts[index as usize]["value"].as_u64().unwrap_or(0); 
 	let hex = prevouts[index as usize]["scriptpubkey"].to_string().replace("\"", "");
-	let script_pub_key = Script(hex.decode_hex_be()?);
+	let script_pub_key = ScriptPubKey::from_bytes(hex.decode_hex_be()?);
 
 	let output = Output {
 		amount,
@@ -322,9 +317,10 @@ fn get_prevout(previous_tx: &str, index: u32) -> Result<Output, Box<dyn Error>> 
 mod tests {
 	use std::io::{Cursor, Error};
 	use std::io::prelude::*;
-	use crate::{Serialize, Deserialize};
+	use crate::script::{ScriptSig, Script, ScriptPubKey};
+use crate::txio::Decodable;
+use crate::{Serialize, Deserialize};
 	use crate::transaction::{Input, Output, Transaction, WitnessStack};
-	use crate::Script;
 
     #[test]
     fn encode_transaction_pre_segwit() -> Result<(), Error> {
@@ -364,13 +360,13 @@ mod tests {
 		let inputs = vec![Input {
 			previous_tx: "656aa8c5894c179b2745fa8a0fb68cb10688daa7389fd47900a055cc2526cb5d".to_string(),
 			tx_index: 0,
-			script_sig: Script::from("a91430fc33f7b86c02f3edb60ea373ca5f467cf507b787"),
+			script_sig: ScriptSig::from_str("a91430fc33f7b86c02f3edb60ea373ca5f467cf507b787"),
 			sequence: "ffffffff".to_string(),
 			prevout: None,
 		}];
 		let outputs = vec![Output {
 			amount: 1000,
-			script_pub_key: Script::from("abcdef"),
+			script_pub_key: ScriptPubKey::from_str("abcdef"),
 		}];
 		let witness_data = None;
 		let transaction = Transaction {
@@ -385,7 +381,7 @@ mod tests {
 			extra_info: None,
 		};
 
-		assert_eq!(Transaction::new(stream), transaction);
+		assert_eq!(Transaction::encode_raw(stream), transaction);
 		Ok(())
     }
 
@@ -394,13 +390,13 @@ mod tests {
 		let inputs = vec![Input {
 			previous_tx: "656aa8c5894c179b2745fa8a0fb68cb10688daa7389fd47900a055cc2526cb5d".to_string(),
 			tx_index: 0,
-			script_sig: Script::from("76a91488fed7b8154069b5d2ace12fa4b7f96ab73d59df88ac"),
+			script_sig: ScriptSig::from_str("76a91488fed7b8154069b5d2ace12fa4b7f96ab73d59df88ac"),
 			sequence: "ffffffff".to_string(),
 			prevout: None,
 		}];
 		let outputs = vec![Output {
 			amount: 1000,
-			script_pub_key: Script::from("abcdef"),
+			script_pub_key: ScriptPubKey::from_str("abcdef"),
 		}];
 		let witness_data = None;
 		let transaction = Transaction {
@@ -415,19 +411,15 @@ mod tests {
 			extra_info: None,
 		};
 
-		assert_eq!(transaction.as_hex(), "01000000015dcb2625cc55a00079d49f38a7da8806b18cb60f8afa452\
-		79b174c89c5a86a65000000001976a91488fed7b8154069b5d2ace12fa4b7f96ab73d59df88acffffffff01e803\
-		00000000000003abcdef00000000".to_string());
+		let raw_tx = "01000000015dcb2625cc55a00079d49f38a7da8806b18cb60f8afa45279b174c89c5a86a65000\
+		000001976a91488fed7b8154069b5d2ace12fa4b7f96ab73d59df88acffffffff01e80300000000000003abcdef\
+		00000000";
+		let bytes = raw_tx.decode_hex_be().expect("shouldn't fail");
+
+		assert_eq!(transaction.as_hex(), raw_tx.to_string());
 
 		// round trip
-		let mut stream = Cursor::new(Vec::new());
-		stream.write(b"01000000015dcb2625cc55a00079d49f38a7da8806b18cb60f8afa45279b174c89c5a86a6500\
-					 0000001976a91488fed7b8154069b5d2ace12fa4b7f96ab73d59df88acffffffff01e803000000\
-					 00000003abcdef00000000").expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
-		stream.seek(std::io::SeekFrom::Start(0)).expect("unable to seek");
-
-		let tx = match Transaction::decode_raw(stream) {
+		let tx = match Transaction::decode_raw(bytes) {
 			Ok(t) => t,
 			Err(e) => panic!("{}", e)
 		};
@@ -440,7 +432,7 @@ mod tests {
 		let inputs = vec![Input {
 			previous_tx: "0437cd7f8525ceed2324359c2d0ba26006d92d856a9c20fa0241106ee5a597c9".to_string(),
 			tx_index: 0,
-			script_sig: Script::from("47304402204e45e16932b8af514961a1d3a1a25fdf3f4f7732e9d624c6c61\
+			script_sig: ScriptSig::from_str("47304402204e45e16932b8af514961a1d3a1a25fdf3f4f7732e9d624c6c61\
 			548ab5fb8cd410220181522ec8eca07de4860a4acdd12909d831cc56cbbac4622082221a8768d1d0901"),
 			sequence: "ffffffff".to_string(),
 			prevout: None,
@@ -449,13 +441,13 @@ mod tests {
 		let outputs = vec![
 			Output {
 				amount: 1000000000,
-				script_pub_key: Script::from("4104ae1a62fe09c5f51b13905f07f06b99a2f7159b2225f374cd3\
-				78d71302fa28414e7aab37397f554a7df5f142c21c1b7303b8a0626f1baded5c72a704f7e6cd84cac"),
+				script_pub_key: ScriptPubKey::from_str("4104ae1a62fe09c5f51b13905f07f06b99a2f7159b2\
+				225f374cd378d71302fa28414e7aab37397f554a7df5f142c21c1b7303b8a0626f1baded5c72a704f7e6cd84cac"),
 			},
 			Output {
 				amount: 4000000000,
-				script_pub_key: Script::from("410411db93e1dcdb8a016b49840f8c53bc1eb68a382e97b1482ec\
-				ad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac"),
+				script_pub_key: ScriptPubKey::from_str("410411db93e1dcdb8a016b49840f8c53bc1eb68a382\
+				e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac"),
 			}
 		];
 		
@@ -480,16 +472,12 @@ mod tests {
 		c1b7303b8a0626f1baded5c72a704f7e6cd84cac00286bee0000000043410411db93e1dcdb8a016b49840f8c53b\
 		c1eb68a382e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f6\
 		56b412a3ac00000000";
+		let bytes = raw_tx.decode_hex_be().expect("shouldn't fail");
 
 		assert_eq!(transaction.as_hex(), raw_tx.to_string());
 
 		// round trip
-		let mut stream = Cursor::new(Vec::new());
-		stream.write(raw_tx.as_bytes()).expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
-		stream.seek(std::io::SeekFrom::Start(0)).expect("unable to seek");
-
-		let tx = match Transaction::decode_raw(stream) {
+		let tx = match Transaction::decode_raw(bytes) {
 			Ok(t) => t,
 			Err(e) => panic!("{}", e)
 		};
@@ -502,9 +490,9 @@ mod tests {
 		let inputs = vec![Input {
 			previous_tx: "889c2561c6caf5f31af96162b17b196cc88a81f04f5f4a9af9052529c4f71ae1".to_string(),
 			tx_index: 0,
-			script_sig: Script::from("473044022045c7199ffc8069a498135b7bb2678da16e8b5d49455b4a7ace7\
-			55928c9339c7a022051cbf72024cf273444640f7b993b2bf3d329124b03e6744edaed5158a30e29b8012103\
-			fd9bc1e9803e739720e0f1c63e580a94656c7d0cab6cd083f0c0dfb221b90662"),
+			script_sig: ScriptSig::from_str("473044022045c7199ffc8069a498135b7bb2678da16e8b5d49455b\
+			4a7ace755928c9339c7a022051cbf72024cf273444640f7b993b2bf3d329124b03e6744edaed5158a30e29b\
+			8012103fd9bc1e9803e739720e0f1c63e580a94656c7d0cab6cd083f0c0dfb221b90662"),
 			sequence: "ffffffff".to_string(),
 			prevout: None,
 		}];
@@ -512,11 +500,11 @@ mod tests {
 		let outputs = vec![
 			Output {
 				amount: 1400000000000,
-				script_pub_key: Script::from("76a9143b9552116adcc2fbd74fad44a4da603a727c816e88ac")
+				script_pub_key: ScriptPubKey::from_str("76a9143b9552116adcc2fbd74fad44a4da603a727c816e88ac")
 			},
 			Output {
 				amount: 1099994980000,
-				script_pub_key: Script::from("76a914f90ce447f14847e841d4d2ecc76299b5bc77166188ac"),
+				script_pub_key: ScriptPubKey::from_str("76a914f90ce447f14847e841d4d2ecc76299b5bc77166188ac"),
 			}
 		];
 		let witness_data = None;
@@ -538,18 +526,12 @@ mod tests {
 		e0f1c63e580a94656c7d0cab6cd083f0c0dfb221b90662ffffffff0200b080f6450100001976a9143b9552116ad\
 		cc2fbd74fad44a4da603a727c816e88aca05ecf1c000100001976a914f90ce447f14847e841d4d2ecc76299b5bc\
 		77166188ac00000000";
+		let bytes = raw_transaction.decode_hex_be().expect("shouldn't fail");
 
 		assert_eq!(transaction.as_hex(), raw_transaction.to_string());
 
 		// round trip
-		let mut stream = Cursor::new(Vec::new());
-
-		stream.write(raw_transaction.as_bytes()).expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
-
-		stream.seek(std::io::SeekFrom::Start(0)).expect("unable to seek");
-
-		let tx = match Transaction::decode_raw(stream) {
+		let tx = match Transaction::decode_raw(bytes) {
 			Ok(t) => t,
 			Err(e) => panic!("{}", e)
 		};
@@ -561,13 +543,13 @@ mod tests {
 		let inputs = vec![Input {
 			previous_tx: "cc526c2f5d31894c27641469bfc751910aaa08202e038b0ec6f0a9f661d3ba6d".to_string(),
 			tx_index: 25,
-			script_sig: Script::from("0047304402204945c3e4f824d263bb22e117a12bfff741d996d594f07551c\
-			93e0fde77910d32022016c2b69daec51bd4afdd81bf90f76667dda515773b3da91174043fc7299acb530147\
-			3044022053c71a4730160b20e565cb669a44b793f42d2912e84d528cf203089abcb2874402203311303cfc3\
-			6b91372e47d5fa0b22104e7c25bb5a8dcccd15c423620d5700304014c69522102047464f518269c6cba42b8\
-			59d28e872ef8f6bb47d93e24d5c11ac6eca8a2845721029b48417598a2d2dab54ddddfca8e1a9c8d4967002\
-			180961f53a7748710c2176521036b1023b6c7ed689aaf3bc8ca9ee5c55da383ae0c44fc8b0fec91d6965dae\
-			5d5e53ae"),
+			script_sig: ScriptSig::from_str("0047304402204945c3e4f824d263bb22e117a12bfff741d996d594\
+			f07551c93e0fde77910d32022016c2b69daec51bd4afdd81bf90f76667dda515773b3da91174043fc7299ac\
+			b5301473044022053c71a4730160b20e565cb669a44b793f42d2912e84d528cf203089abcb2874402203311\
+			303cfc36b91372e47d5fa0b22104e7c25bb5a8dcccd15c423620d5700304014c69522102047464f518269c6\
+			cba42b859d28e872ef8f6bb47d93e24d5c11ac6eca8a2845721029b48417598a2d2dab54ddddfca8e1a9c8d\
+			4967002180961f53a7748710c2176521036b1023b6c7ed689aaf3bc8ca9ee5c55da383ae0c44fc8b0fec91d\
+			6965dae5d5e53ae"),
 			sequence: "ffffffff".to_string(),
 			prevout: None,
 		}];
@@ -575,19 +557,19 @@ mod tests {
 		let outputs = vec![
 			Output {
 				amount: 1170000,
-				script_pub_key: Script::from("00141e129251311437eea493fce2a3644a5a1af8d407"),
+				script_pub_key: ScriptPubKey::from_str("00141e129251311437eea493fce2a3644a5a1af8d407"),
 			},
 			Output {
 				amount: 1930000,
-				script_pub_key: Script::from("76a9140ac4423b045a0c8ed5f4fb992256ed293a313ae088ac"),
+				script_pub_key: ScriptPubKey::from_str("76a9140ac4423b045a0c8ed5f4fb992256ed293a313ae088ac"),
 			},
 			Output {
 				amount: 10185620,
-				script_pub_key: Script::from("a914cd38af19a803de11ddcee3a45221ed9ac491404787"),
+				script_pub_key: ScriptPubKey::from_str("a914cd38af19a803de11ddcee3a45221ed9ac491404787"),
 			},
 			Output {
 				amount: 1519708769,
-				script_pub_key: Script::from("a9143572de0bb360f212ef8813a9e012f63a7035c9c987"),
+				script_pub_key: ScriptPubKey::from_str("a9143572de0bb360f212ef8813a9e012f63a7035c9c987"),
 			}
 		];
 
@@ -618,16 +600,12 @@ mod tests {
 		1600141e129251311437eea493fce2a3644a5a1af8d40710731d00000000001976a9140ac4423b045a0c8ed5f4f\
 		b992256ed293a313ae088ac946b9b000000000017a914cd38af19a803de11ddcee3a45221ed9ac49140478761ea\
 		945a0000000017a9143572de0bb360f212ef8813a9e012f63a7035c9c98700000000";
+		let bytes = raw_transaction.decode_hex_be().expect("shouldn't fail");
 
 		assert_eq!(transaction.as_hex(), raw_transaction.to_string());
 
 		// round trip
-		let mut stream = Cursor::new(Vec::new());
-		stream.write(raw_transaction.as_bytes()).expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
-		stream.seek(std::io::SeekFrom::Start(0)).expect("unable to seek");
-
-		let tx = match Transaction::decode_raw(stream) {
+		let tx = match Transaction::decode_raw(bytes) {
 			Ok(t) => t,
 			Err(e) => panic!("{}", e)
 		};
@@ -641,21 +619,21 @@ mod tests {
 			Input {
 				previous_tx: "4c13d894ad116e56d473b30774ea8577017cb51384c0104e4ee2d432b84194d1".to_string(),
 				tx_index: 28,
-				script_sig: Script::from("1600147c846a806f4d9e516c9fb2fe364f28eac4e3c3fc"),
+				script_sig: ScriptSig::from_str("1600147c846a806f4d9e516c9fb2fe364f28eac4e3c3fc"),
 				sequence: "ffffffff".to_string(),
 				prevout: None,
 			},
 			Input {
 				previous_tx: "9a71c410ee5b3c3e2949f17db6220dd0887aaae63f0ecccbee2e4241596a413d".to_string(),
 				tx_index: 44,
-				script_sig: Script::from("1600147c846a806f4d9e516c9fb2fe364f28eac4e3c3fc"),
+				script_sig: ScriptSig::from_str("1600147c846a806f4d9e516c9fb2fe364f28eac4e3c3fc"),
 				sequence: "ffffffff".to_string(),
 				prevout: None,
 			},
 			Input {
 				previous_tx: "966973ad982bb773854f87a725563067f332199f6b632dcca38127299a58224f".to_string(),
 				tx_index: 0,
-				script_sig: Script::from("1600147c846a806f4d9e516c9fb2fe364f28eac4e3c3fc"),
+				script_sig: ScriptSig::from_str("1600147c846a806f4d9e516c9fb2fe364f28eac4e3c3fc"),
 				sequence: "ffffffff".to_string(),
 				prevout: None,
 			},
@@ -665,11 +643,11 @@ mod tests {
 		let outputs = vec![
 			Output {
 				amount: 73950453,
-				script_pub_key: Script::from("a9142c21151d54bd219dcc4c52e1cb38672dab8e36cc87"),
+				script_pub_key: ScriptPubKey::from_str("a9142c21151d54bd219dcc4c52e1cb38672dab8e36cc87"),
 			},
 			Output {
 				amount: 1147480000,
-				script_pub_key: Script::from("76a91439b1050dba04b1d1bc556c2dcdcb3874ba3dc11e88ac"),
+				script_pub_key: ScriptPubKey::from_str("76a91439b1050dba04b1d1bc556c2dcdcb3874ba3dc11e88ac"),
 			}
 		];
 
@@ -720,16 +698,12 @@ mod tests {
 		2ac34569565a62a1e0c12750104f494a906fefd2f2a462199c0d4bc235d902200c37ef333b453966cc5e84b178e\
 		c62125cbed83e0c0df4448c0fb331efa49e51012103789a9d83798d4cbf688f9969a94084ee1655059e137b4349\
 		2ee94dc4538790ab00000000";
+		let bytes = raw_transaction.decode_hex_be().expect("shouldn't fail");
 
 		assert_eq!(transaction.as_hex(), raw_transaction.to_string());
 
 		// round trip
-		let mut stream = Cursor::new(Vec::new());
-		stream.write(raw_transaction.as_bytes()).expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
-		stream.seek(std::io::SeekFrom::Start(0)).expect("unable to seek");
-
-		let tx = match Transaction::decode_raw(stream) {
+		let tx = match Transaction::decode_raw(bytes) {
 			Ok(t) => t,
 			Err(e) => panic!("{}", e)
 		};

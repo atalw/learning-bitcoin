@@ -1,9 +1,7 @@
 use std::fmt::{write, LowerHex};
 use std::io::{Seek, SeekFrom, BufRead, Write, Error, ErrorKind};
 use std::num::ParseIntError;
-
-use crate::Deserialize;
-use crate::script::{ScriptBuilder, Script};
+use crate::script::{ScriptBuilder, Script, ScriptAsm, ScriptPubKey};
 
 // TODO:
 // - Custom errors
@@ -16,11 +14,11 @@ pub type HexBytes = Box<[u8]>;
 /// communicate with each other with a shared language. Encodable ensures that the data is encoded
 /// in the correct format taking care of endianness.
 pub trait Encodable {
-	/// Convert an array of bytes, which is in little endian, into a Hex string.
+	/// Convert an array of bytes, which are in little endian, into a Hex string.
 	/// The most significant bit in little-endian is at the smallest memory address i.e. the
 	/// number 123 is stored as 321.
 	fn encode_hex_le(&self) -> String;
-	/// Convert an array of bytes, which is in big endian, into a Hex string.
+	/// Convert an array of bytes, which are in big endian, into a Hex string.
 	fn encode_hex_be(&self) -> String;
 }
 
@@ -190,6 +188,7 @@ impl<R: BufRead + Seek> ReadExt for R {
 	fn read_hex_var(&mut self, length: u64) -> Result<HexBytes, Error> {
 		let mut bytes = vec![0; length as usize];
 		self.read(&mut bytes)?;
+		// There has to be a better way...
 		Ok(bytes.encode_hex_be().decode_hex_be().expect("unable to parse"))
 	}
 
@@ -315,7 +314,7 @@ pub trait UserReadExt {
 	/// Read an assembly script with opcodes until a valid script is parsed.
 	/// Note: The script needs to be verbose in that if the script contains a number 1, OP_1 needs
 	/// to be entered otherwise it won't parse correctly.
-	fn user_read_asm(&mut self) -> Script;
+	fn user_read_asm(&mut self) -> HexBytes;
 }
 
 macro_rules! user_read_int {
@@ -350,7 +349,7 @@ macro_rules! user_read_hex {
 							Err(e) => println!("{}. Try again.", e)
 						}
 					},
-					_ => println!("Error! Try again.")
+					_ => panic!("Error! Try again.")
 				}
 			}
 		}
@@ -374,7 +373,7 @@ impl<R: BufRead> UserReadExt for R {
 						Err(e) => println!("{}. Try again.", e)
 					}
 				},
-				_ => println!("Error! Try again.")
+				Err(e) => println!("{}! Try again.", e)
 			}
 		}
 	}
@@ -394,13 +393,13 @@ impl<R: BufRead> UserReadExt for R {
 		}
 	}
 
-	fn user_read_asm(&mut self) -> Script {
+	fn user_read_asm(&mut self) -> HexBytes {
 		loop {
 			let mut line = String::new();
 			match self.read_line(&mut line) {
 				Ok(_) => {
 					match line.trim_end().parse_asm() {
-						Ok(script) => return script,
+						Ok(bytes) => return bytes,
 						Err(e) => println!("{}. Try again.", e)
 					}
 
@@ -412,21 +411,23 @@ impl<R: BufRead> UserReadExt for R {
 }
 
 trait StrExt {
-	fn parse_asm(&self) -> Result<Script, Box<dyn std::error::Error>>;
+	// FIXME: return type
+	fn parse_asm(&self) -> Result<HexBytes, Box<dyn std::error::Error>>;
 }
 
 impl StrExt for str {
-	fn parse_asm(&self) -> Result<Script, Box<dyn std::error::Error>> {
+	fn parse_asm(&self) -> Result<HexBytes, Box<dyn std::error::Error>> {
 		let tokens: Vec<&str> = self.split(" ").collect();
 
 		let mut script_builder = ScriptBuilder::new();
 		for token in &tokens {
+			println!("{:?}", token);
 			script_builder.push(token)?;
 		}
-		let script = script_builder.into_script();
+		let script: ScriptPubKey = script_builder.into_script();
 		println!("Parsed script is: {}", script.as_asm());
 		if script.as_asm() == self {
-			Ok(script)
+			Ok(script.script)
 		} else {
 			Err(Box::new(Error::new(ErrorKind::InvalidInput, "Uh oh! The parsed script does not match.")))
 		}

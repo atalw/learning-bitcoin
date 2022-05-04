@@ -1,20 +1,187 @@
+/// Code ideas from https://github.com/rust-bitcoin/rust-bitcoin/blob/master/src/blockdata/script.rs
+
 use std::error::Error;
 use std::io::{BufRead, Cursor};
-use crate::txio::{Decodable, HexBytes, ReadExt, UserReadExt};
+use crate::txio::{Encodable, Decodable, HexBytes, ReadExt, UserReadExt};
 use crate::{Serialize, opcodes, Deserialize, hash};
 use std::fmt;
 
 // Why box? https://doc.rust-lang.org/book/ch15-01-box.html
-#[derive(PartialEq)]
-pub struct Script(pub HexBytes);
+// #[derive(PartialEq)]
+// pub struct Script(pub HexBytes);
 
 // TODO: Q. How do I organize the code so that I can have a ScriptPubKey and ScriptSig type with
 // different fields but they both are Scripts? I want them to inherit the Serialize and Deserialize
-// impl for Script so that I don't have to reimplement it. One idea is to impl generic on Script
-// but that feels like a hack for this scenario.
+// impl for Script so that I don't have to reimplement it. Not sure how to type limit a generic
+// impl.
 
-/// Build the script piece by piece
-pub struct ScriptBuilder(Vec<u8>);
+// Script is the language which both ScriptSig and ScriptPubKey use.
+
+/// Defines the shared behaviour of ScripSig and ScriptPubKey.
+pub trait Script {
+	fn from_bytes(bytes: HexBytes) -> Self where Self: Sized;
+	fn from_str(hex: &str) -> Self where Self: Sized;
+
+	fn new_p2sh(public_key: HexBytes) -> Self where Self: Sized;
+	fn new_p2pkh(public_key: HexBytes) -> Self where Self: Sized;
+
+	fn is_p2sh(&self) -> bool;
+	fn is_p2pkh(&self) -> bool;
+
+	fn get_address(&self) -> Option<String>;
+	fn get_type(&self) -> ScriptType;
+
+	/// Creates an assembly-formatted string of the input Script. Right now this is only used for
+	/// display purposes. 
+	fn as_asm(&self) -> String;
+}
+
+macro_rules! impl_script_for {
+	($ty: ty) => {
+		impl Script for $ty {
+			fn from_bytes(bytes: HexBytes) -> Self {
+				<$ty>::new(bytes)
+			}
+
+			fn from_str(hex: &str) -> Self {
+				let bytes = match hex.decode_hex_be() {
+					Ok(b) => b,
+					Err(e) => panic!("{}", e)
+				};
+				<$ty>::from_bytes(bytes)
+			}
+
+			fn new_p2sh(original_script: HexBytes) -> Self {
+				let script_hash = hash::hash160(&original_script);
+				let mut script_builder = ScriptBuilder::new();
+				script_builder.push_opcode(opcodes::all::OP_HASH160);
+				script_builder.push_script_hash(&script_hash);
+				script_builder.push_opcode(opcodes::all::OP_EQUAL);
+				script_builder.into_script()
+			}
+
+			fn new_p2pkh(public_key: HexBytes) -> Self {
+				let public_key_hash = hash::hash160(&public_key);
+				let mut script_builder = ScriptBuilder::new();
+				script_builder.push_opcode(opcodes::all::OP_DUP);
+				script_builder.push_opcode(opcodes::all::OP_HASH160);
+				script_builder.push_script_hash(&public_key_hash);
+				script_builder.push_opcode(opcodes::all::OP_EQUALVERIFY);
+				script_builder.push_opcode(opcodes::all::OP_CHECKSIG);
+				script_builder.into_script()
+			}
+
+			/// Checks whether a script pubkey is a P2SH output.
+			#[inline]
+			fn is_p2sh(&self) -> bool {
+				self.script.len() == 23
+					&& self.script[0] == opcodes::all::OP_HASH160.into_u8()
+					&& self.script[1] == opcodes::all::OP_PUSHBYTES_20.into_u8()
+					&& self.script[22] == opcodes::all::OP_EQUAL.into_u8()
+			}
+
+			/// Checks whether a script pubkey is a P2PKH output.
+			#[inline]
+			fn is_p2pkh(&self) -> bool {
+				self.script.len() == 25
+					&& self.script[0] == opcodes::all::OP_DUP.into_u8()
+					&& self.script[1] == opcodes::all::OP_HASH160.into_u8()
+					&& self.script[2] == opcodes::all::OP_PUSHBYTES_20.into_u8()
+					&& self.script[23] == opcodes::all::OP_EQUALVERIFY.into_u8()
+					&& self.script[24] == opcodes::all::OP_CHECKSIG.into_u8()
+			}
+
+			fn get_address(&self) -> Option<String> {
+				if self.is_p2pkh() {
+					let pubkey_hash = &self.script[3..23];
+					let mut bytes = vec![111]; // using testnet prefix
+					bytes.extend_from_slice(pubkey_hash);
+					let checksum = &hash::hash256(&bytes.clone())[..4];
+					bytes.extend_from_slice(&checksum);
+					assert_eq!(bytes.len(), 25);
+					Some(bs58::encode(bytes).into_string())
+				} else if self.is_p2sh() {
+					let pubkey_hash = &self.script[2..22];
+					let mut bytes = vec![196]; // using testnet prefix
+					bytes.extend_from_slice(pubkey_hash);
+					let checksum = &hash::hash256(&bytes.clone())[..4];
+					bytes.extend_from_slice(&checksum);
+					assert_eq!(bytes.len(), 25);
+					Some(bs58::encode(bytes).into_string())
+				} else {
+					None
+				}
+			}
+			/// Determine the Script type
+			fn get_type(&self) -> ScriptType {
+				if self.is_p2sh() {
+					ScriptType::P2SH
+				} else if self.is_p2pkh() {
+					ScriptType::P2PKH
+				} else {
+					ScriptType::Custom
+				}
+			}
+
+			fn as_asm(&self) -> String {
+				let hexbytes = &self.script;
+				let len = hexbytes.len();
+				let mut stream = Cursor::new(hexbytes);
+
+				let mut parsed = "".to_string();
+
+				while (stream.position() as usize) < len {
+					let b = stream.read_u8_le().expect("won't fail");
+					let opcode = opcodes::All::from(b);
+
+					// not sure if this is the correct condition
+					if opcode.code == opcodes::all::OP_PUSHBYTES_1.into_u8() {
+						let size = stream.read_u8_le().expect("shouldn't fail i think");
+						parsed.push_str(&format!("{}", size));
+						parsed.push_str(" ");
+					} else if opcode.code > opcodes::all::OP_PUSHBYTES_1.into_u8() && opcode.code <= opcodes::all::OP_PUSHBYTES_75.into_u8() {
+						let len = opcode.code;
+						let script = stream.read_hex_var(len as u64).expect("shouldn't fail i think");
+						parsed.push_str(&(*script).encode_hex_be());
+						parsed.push_str(" ");
+					} else if opcode.code >= opcodes::all::OP_PUSHNUM_1.into_u8() && 
+						opcode.code <= opcodes::all::OP_PUSHNUM_15.into_u8() {
+							let hex_num = 1 + opcode.code - opcodes::all::OP_PUSHNUM_1.code;
+							let dec_num = u32::from_str_radix(&hex_num.to_string(), 16).unwrap();
+							parsed.push_str(&format!("{} ", dec_num));
+						} else {
+							parsed.push_str(&format!("{:02x?} ", opcode));
+						}
+				}
+
+				parsed.trim_end().to_string()
+
+			}
+		}
+	};
+}
+
+impl_script_for!(ScriptSig);
+impl_script_for!(ScriptPubKey);
+
+/// Script signatures 
+pub struct ScriptSig {
+	pub script: HexBytes
+}
+
+/// Script pub key
+pub struct ScriptPubKey {
+	pub script: HexBytes,
+	address: Option<String>,
+	script_type: Option<ScriptType>
+}
+
+pub struct ScriptAsm(Vec<ScriptAsmTokens>);
+
+pub enum ScriptAsmTokens {
+	Opcode,
+	Hex,
+}
 
 pub enum ScriptType {
 	P2SH,
@@ -22,211 +189,151 @@ pub enum ScriptType {
 	Custom
 }
 
-impl Serialize for Script {
-	fn new<R: BufRead>(mut reader: R) -> Self {
-		println!("What type of script do you want to create?");
-		println!("1. P2SH");
-		println!("2. P2PKH");
-		println!("3. Leave empty (00)");
-		println!("4. Custom (be careful)");
-		println!("Enter option:");
-		let option = reader.user_read_u32();
-
-		if option == 1 { // p2sh script
-			println!("---- What is the format?");
-			println!("---- 1. Script hex");
-			println!("---- 2. Script asm");
-			let option = reader.user_read_u32();
-			let script: Script;
-			if option == 1 { // hex
-				println!("Enter the unhashed script hex:");
-				script = Script(reader.user_read_hex_var());
-			} else if option == 2 { // asm
-				println!("---- Enter the script in assembly. I'll hash it for you:");
-				script = reader.user_read_asm();
-			} else { unimplemented!() }
-			println!("Original script: {}", script.as_hex());
-			Script::new_p2sh(script.as_bytes())
-		} else if option == 2 { // p2pkh script
-			println!("Enter the public key:");
-			let key = Script(reader.user_read_hex_var());
-			Script::new_p2pkh(&key.as_bytes())
-		} else if option == 3 { // empty, useful for signrawtransactionwithwallet
-			Script::from("00")
-		}  else if option == 4 { // custom script
-			Script(reader.user_read_hex_var())
-		} else {
-			todo!()
-		}
-	}
-
-	fn as_hex(&self) -> String {
-		format!("{:02x}", self)
-	}
-
-	fn as_bytes(&self) -> &[u8] {
-		&self.0
+impl PartialEq for ScriptSig {
+    fn eq(&self, other: &ScriptSig) -> bool {
+		self.script == other.script
 	}
 }
 
-impl Script {
-	fn new_p2pkh(public_key: &[u8]) -> Self {
-		let public_key_hash = hash::hash160(public_key);
-		let mut script_builder = ScriptBuilder::new();
-		script_builder.push_opcode(opcodes::all::OP_DUP);
-		script_builder.push_opcode(opcodes::all::OP_HASH160);
-		script_builder.push_script_hash(&public_key_hash);
-		script_builder.push_opcode(opcodes::all::OP_EQUALVERIFY);
-		script_builder.push_opcode(opcodes::all::OP_CHECKSIG);
-		script_builder.into_script()
-	}
-
-	fn new_p2sh(original_script: &[u8]) -> Self {
-		let script_hash = hash::hash160(original_script);
-		let mut script_builder = ScriptBuilder::new();
-		script_builder.push_opcode(opcodes::all::OP_HASH160);
-		script_builder.push_script_hash(&script_hash);
-		script_builder.push_opcode(opcodes::all::OP_EQUAL);
-		script_builder.into_script()
+impl PartialEq for ScriptPubKey {
+    fn eq(&self, other: &ScriptPubKey) -> bool {
+		self.script == other.script
 	}
 }
 
-impl Deserialize for Script {
-	fn decode_raw<R: BufRead>(mut reader: R) -> Result<Self, Box<dyn Error>> {
-		println!("Enter a raw script hex");
-		let raw_script_bytes = reader.user_read_hex_var();
+macro_rules!  impl_serialize_for {
+	($ty: ty) => {
+		impl Serialize for $ty {
+			fn encode_raw<R: BufRead>(mut reader: R) -> Self {
+				println!("What type of script do you want to create?");
+				println!("1. P2SH");
+				println!("2. P2PKH");
+				println!("3. Leave empty (00)");
+				println!("4. Custom (be careful)");
+				println!("Enter option:");
+				let option = reader.user_read_u32();
 
-		let len = raw_script_bytes.len();
-		let mut stream = Cursor::new(raw_script_bytes);
+				if option == 1 { // p2sh script
+					println!("---- What is the format?");
+					println!("---- 1. Script hex");
+					println!("---- 2. Script asm");
+					let option = reader.user_read_u32();
+					let script;
+					if option == 1 { // hex
+						println!("Enter the unhashed script hex:");
+						script = <$ty>::from_bytes(reader.user_read_hex_var());
+					} else if option == 2 { // asm
+						println!("---- Enter the script in assembly. I'll hash it for you:");
+						script = <$ty>::from_bytes(reader.user_read_asm());
+					} else { unimplemented!() }
+					println!("Original script: {}", script.as_hex());
+					<$ty>::new_p2sh(script.as_bytes())
+				} else if option == 2 { // p2pkh script
+					println!("Enter the public key:");
+					let key = <$ty>::from_bytes(reader.user_read_hex_var());
+					Self::new_p2pkh(key.as_bytes())
+				} else if option == 3 { // empty, useful for signrawtransactionwithwallet
+					<$ty>::from_str("00")
+				}  else if option == 4 { // custom script
+					<$ty>::from_bytes(reader.user_read_hex_var())
+				} else {
+					todo!()
+				}
+			}
 
-		let mut script_builder = ScriptBuilder::new();
+			fn as_hex(&self) -> String {
+				self.script.encode_hex_be()
+			}
 
-		while (stream.position() as usize) < len {
-			let b = stream.read_u8_le().expect("shouldn't fail i think");
-			let opcode = opcodes::All::from(b);
-
-			// not sure if this is the correct condition
-			if opcode.code == opcodes::all::OP_PUSHBYTES_1.into_u8() {
-				let size = stream.read_u8_le().expect("shouldn't fail i think");
-				script_builder.push_size(size);
-			} else if opcode.code > opcodes::all::OP_PUSHBYTES_1.into_u8() && opcode.code <= opcodes::all::OP_PUSHBYTES_75.into_u8() {
-				let len = opcode.code;
-				let script = Script(stream.read_hex_var(len as u64).expect("shouldn't fail i think"));
-				script_builder.push_script_hash(&script.as_bytes());
-			} else if opcode.code >= opcodes::all::OP_PUSHNUM_1.into_u8() && 
-				opcode.code <= opcodes::all::OP_PUSHNUM_15.into_u8() {
-					script_builder.push_opcode(opcode);
-			} else {
-				script_builder.push_opcode(opcode);
+			fn as_bytes(&self) -> HexBytes {
+				self.script.clone()
 			}
 		}
+	};
+}
 
-		Ok(script_builder.into_script())
-	}
+impl_serialize_for!(ScriptSig);
+impl_serialize_for!(ScriptPubKey);
 
-	// TODO: I don't like that this code is repeated. How do I reuse?
-	fn as_asm(&self) -> String {
-		// let data = txio::decode_hex_be(&self.as_hex()).expect("uho ho");
-		let data = self.as_hex().decode_hex_be().expect("uho ho");
-		let len = data.len();
-		let mut stream = Cursor::new(data);
 
-		let mut parsed = "".to_string();
+macro_rules! impl_deserialize_for {
+	($ty: ty) => {
+		impl Deserialize for $ty {
+			fn decode_raw(bytes: HexBytes) -> Result<Self, Box<dyn Error>> {
+				println!("{:02x?}", bytes);
+				let len = bytes.len();
+				let mut stream = Cursor::new(bytes);
 
-		while (stream.position() as usize) < len {
-			let b = stream.read_u8_le().expect("won't fail");
-			let opcode = opcodes::All::from(b);
+				let mut script_builder = ScriptBuilder::new();
 
-			// not sure if this is the correct condition
-			if opcode.code == opcodes::all::OP_PUSHBYTES_1.into_u8() {
-				let size = stream.read_u8_le().expect("shouldn't fail i think");
-				parsed.push_str(&format!("{}", size));
-				parsed.push_str(" ");
-			} else if opcode.code > opcodes::all::OP_PUSHBYTES_1.into_u8() && opcode.code <= opcodes::all::OP_PUSHBYTES_75.into_u8() {
-				let len = opcode.code;
-				let script = Script(stream.read_hex_var(len as u64).expect("shouldn't fail i think"));
-				parsed.push_str(&script.as_hex());
-				parsed.push_str(" ");
-			} else if opcode.code >= opcodes::all::OP_PUSHNUM_1.into_u8() && 
-				opcode.code <= opcodes::all::OP_PUSHNUM_15.into_u8() {
-					let hex_num = 1 + opcode.code - opcodes::all::OP_PUSHNUM_1.code;
-					let dec_num = u32::from_str_radix(&hex_num.to_string(), 16).unwrap();
-					parsed.push_str(&format!("{} ", dec_num));
-			} else {
-				parsed.push_str(&format!("{:02x?} ", opcode));
+				while (stream.position() as usize) < len {
+					let b = stream.read_u8_le().expect("shouldn't fail i think");
+					let opcode = opcodes::All::from(b);
+
+					// not sure if this is the correct condition
+					if opcode.code == opcodes::all::OP_PUSHBYTES_1.into_u8() {
+						let size = stream.read_u8_le().expect("shouldn't fail i think");
+						script_builder.push_size(size);
+					} else if opcode.code > opcodes::all::OP_PUSHBYTES_1.into_u8() && opcode.code <= opcodes::all::OP_PUSHBYTES_75.into_u8() {
+						let len = opcode.code;
+						let script = stream.read_hex_var(len as u64).expect("shouldn't fail i think");
+						script_builder.push_script_hash(&script)
+					} else if opcode.code >= opcodes::all::OP_PUSHNUM_1.into_u8() && 
+						opcode.code <= opcodes::all::OP_PUSHNUM_15.into_u8() {
+							script_builder.push_opcode(opcode);
+						} else {
+							script_builder.push_opcode(opcode);
+						}
+				}
+				Ok(script_builder.into_script())
 			}
 		}
-
-		parsed.trim_end().to_string()
-	}
-	
+	};
 }
 
-impl Script {
-	pub fn get_address(&self) -> Option<String> {
-		if self.is_p2pkh() {
-			let pubkey_hash = &self.0[3..23];
-			let mut bytes = vec![111]; // using testnet prefix
-			bytes.extend_from_slice(pubkey_hash);
-			let checksum = &hash::hash256(&bytes.clone())[..4];
-			bytes.extend_from_slice(&checksum);
-			assert_eq!(bytes.len(), 25);
-			Some(bs58::encode(bytes).into_string())
-		} else if self.is_p2sh() {
-			let pubkey_hash = &self.0[2..22];
-			let mut bytes = vec![196]; // using testnet prefix
-			bytes.extend_from_slice(pubkey_hash);
-			let checksum = &hash::hash256(&bytes.clone())[..4];
-			bytes.extend_from_slice(&checksum);
-			assert_eq!(bytes.len(), 25);
-			Some(bs58::encode(bytes).into_string())
-		} else {
-			None
-		}
-	}
-	/// Determine the Script type
-	pub fn get_type(&self) -> ScriptType {
-		if self.is_p2sh() {
-			ScriptType::P2SH
-		} else if self.is_p2pkh() {
-			ScriptType::P2PKH
-		} else {
-			ScriptType::Custom
-		}
-	}
 
-    /// Checks whether a script pubkey is a P2SH output.
-    #[inline]
-    pub fn is_p2sh(&self) -> bool {
-        self.0.len() == 23
-            && self.0[0] == opcodes::all::OP_HASH160.into_u8()
-            && self.0[1] == opcodes::all::OP_PUSHBYTES_20.into_u8()
-            && self.0[22] == opcodes::all::OP_EQUAL.into_u8()
-    }
+impl_deserialize_for!(ScriptSig);
+impl_deserialize_for!(ScriptPubKey);
 
-    /// Checks whether a script pubkey is a P2PKH output.
-    #[inline]
-    pub fn is_p2pkh(&self) -> bool {
-        self.0.len() == 25
-            && self.0[0] == opcodes::all::OP_DUP.into_u8()
-            && self.0[1] == opcodes::all::OP_HASH160.into_u8()
-            && self.0[2] == opcodes::all::OP_PUSHBYTES_20.into_u8()
-            && self.0[23] == opcodes::all::OP_EQUALVERIFY.into_u8()
-            && self.0[24] == opcodes::all::OP_CHECKSIG.into_u8()
-    }
-}
 
-impl From<&str> for Script {
-	fn from(s: &str) -> Script {
-		let stream = Cursor::new(s.as_bytes());
-		match Script::decode_raw(stream) {
-			Ok(script) => script,
-			Err(e) => panic!("{}", e)
+impl ScriptSig {
+	pub fn new(bytes: HexBytes) -> Self {
+		ScriptSig {
+			script: bytes,
 		}
 	}
 }
 
-impl fmt::Debug for Script {
+impl ScriptPubKey {
+	// TODO: This is a hack because of a poor architectural choice. I have to instantiate a script 
+	// with None address and script_type first. What is the best way to fix this?
+	pub fn new(bytes: HexBytes) -> Self {
+		let mut script = ScriptPubKey { 
+			script: bytes,
+			address: None,
+			script_type: None
+		};
+
+		script.address = script.get_address();
+		script.script_type = Some(script.get_type());
+		script
+	}
+
+}
+
+impl fmt::Debug for ScriptSig {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		f.write_str("{\n")?;
+		f.write_str("\tasm: ")?;
+		write!(f, "\"{}\"", self.as_asm())?;
+		f.write_str("\n")?;
+		f.write_str("\thex: ")?;
+		write!(f, "\"{}\"", self.as_hex())?;
+		f.write_str("\n}")
+	}
+}
+
+impl fmt::Debug for ScriptPubKey {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		f.write_str("{\n")?;
 		f.write_str("\tasm: ")?;
@@ -249,22 +356,35 @@ impl fmt::Debug for Script {
 	}
 }
 
-impl fmt::LowerHex for Script {
+impl fmt::LowerHex for ScriptSig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for &ch in self.0.iter() {
+        for &ch in self.script.iter() {
             write!(f, "{:02x}", ch)?;
         }
         Ok(())
     }
 }
 
+impl fmt::LowerHex for ScriptPubKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for &ch in self.script.iter() {
+            write!(f, "{:02x}", ch)?;
+        }
+        Ok(())
+    }
+}
+
+/// Build the script piece by piece
+pub struct ScriptBuilder(Vec<u8>);
+
 impl ScriptBuilder {
 	pub fn new() -> Self {
 		ScriptBuilder(vec![])	
 	}
 
-	pub fn into_script(&self) -> Script {
-		Script(self.0.clone().into_boxed_slice())
+	pub fn into_script<T: Script>(&self) -> T {
+		let hexbytes = self.0.clone().into_boxed_slice();
+		T::from_bytes(hexbytes)
 	}
 
 	pub fn push(&mut self, token: &str) -> Result<(), Box<dyn Error>> {
@@ -272,7 +392,6 @@ impl ScriptBuilder {
 
 		// TODO: Not the best idea but it works for now
 		if code == opcodes::all::OP_INVALIDOPCODE {
-			// let hex = txio::decode_hex_be(token).expect("Is this a proper script hash?");
 			let hash = token.decode_hex_be()?;
 			self.push_script_hash(&hash);
 		} else {
@@ -343,9 +462,8 @@ impl fmt::Display for ScriptType {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-	use std::io::prelude::*;
-
+    use crate::script::ScriptPubKey;
+    use crate::txio::Decodable;
     use crate::{Deserialize, Serialize};
     use super::Script;
 
@@ -355,15 +473,9 @@ mod tests {
 		8122cc726e9dded053a2184d88256816826d6231c068d4a5b7c820120876475527c21030d417a46946384f88d5f\
 		3337267c5e579765875dc4daca813e21734b140639e752ae67a914b43e1b38138a41b37f7cd9a1d274bc63e3a9b\
 		5d188ac6868".to_string();
+		let bytes = raw_script.decode_hex_be().expect("shouldn't fail");
 
-		let mut stream = Cursor::new(Vec::new());
-
-		stream.write(raw_script.as_bytes()).expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
-
-		stream.seek(std::io::SeekFrom::Start(0)).expect("unable to seek");
-
-		let script = match Script::decode_raw(stream) {
+		let script = match ScriptPubKey::decode_raw(bytes) {
 			Ok(s) => s,
 			Err(e) => panic!("{}", e)
 		};
@@ -379,15 +491,9 @@ mod tests {
     #[test]
 	fn decode_script_2() {
 		let raw_script = "a820affb7035b385c7e8608d209498cd85c60eddadf4e2e50356f601289198219e7387".to_string();
+		let bytes = raw_script.decode_hex_be().expect("shouldn't fail");
 
-		let mut stream = Cursor::new(Vec::new());
-
-		stream.write(raw_script.as_bytes()).expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
-
-		stream.seek(std::io::SeekFrom::Start(0)).expect("unable to seek");
-
-		let script = match Script::decode_raw(stream) {
+		let script = match ScriptPubKey::decode_raw(bytes) {
 			Ok(s) => s,
 			Err(e) => panic!("{}", e)
 		};
@@ -396,18 +502,13 @@ mod tests {
 		assert_eq!(script.as_asm(), "OP_SHA256 affb7035b385c7e8608d209498cd85c60eddadf4e2e50356f601289198219e73 OP_EQUAL".to_string())
 	}
 
+    #[test]
 	fn decode_script_3() {
 		let raw_script = "5121022afc20bf379bc96a2f4e9e63ffceb8652b2b6a097f63fbee6ecec2a49a48010e210\
 		3a767c7221e9f15f870f1ad9311f5ab937d79fcaeee15bb2c722bca515581b4c052ae".to_string();
+		let bytes = raw_script.decode_hex_be().expect("shouldn't fail");
 
-		let mut stream = Cursor::new(Vec::new());
-
-		stream.write(raw_script.as_bytes()).expect("uh oh");
-		stream.write(b"\n").expect("uh oh");
-
-		stream.seek(std::io::SeekFrom::Start(0)).expect("unable to seek");
-
-		let script = match Script::decode_raw(stream) {
+		let script = match ScriptPubKey::decode_raw(bytes) {
 			Ok(s) => s,
 			Err(e) => panic!("{}", e)
 		};

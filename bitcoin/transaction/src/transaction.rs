@@ -57,11 +57,11 @@ impl Serialize for Transaction {
 		let version = reader.user_read_u32();
 		println!("2. Segwit? (enter true or false)");
 		let flag = if reader.user_read_bool() { Some(1) } else { None };
-		println!("2. Number of inputs?: ");
+		println!("3. Number of inputs?: ");
 		let in_counter = reader.user_read_u64();
 		let mut inputs = Vec::new();
 		for i in 0..in_counter {
-			println!("3. Enter input {}:", i);
+			println!("4. Enter input {}:", i);
 			println!("---- Previous transaction hex:");
 			let previous_tx = reader.user_read_hex256().encode_hex_be();
 			println!("---- Output index:");
@@ -81,11 +81,11 @@ impl Serialize for Transaction {
 			});
 		}
 
-		println!("4. Number of outputs?: ");
+		println!("5. Number of outputs?: ");
 		let out_counter = reader.user_read_u64();
 		let mut outputs = Vec::new();
 		for i in 0..out_counter {
-			println!("5. Enter output {}:", i);
+			println!("6. Enter output {}:", i);
 			println!("---- Amount (in sats):");
 			let amount = reader.user_read_u64();
 			println!("---- Script pubkey:");
@@ -97,7 +97,9 @@ impl Serialize for Transaction {
 			});
 		}
 
-		println!("6. Locktime (in decimal): ");
+		// TODO: add witness stack data support
+
+		println!("7. Locktime (in decimal): ");
 		let lock_time = reader.user_read_u32();
 		let extra_info = None;
 

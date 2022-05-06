@@ -18,20 +18,24 @@ use std::fmt;
 /// implemented.
 pub trait Script {
 	/// Convert hex-formatted bytes into a Script type.
-	fn from_bytes(bytes: HexBytes) -> Self where Self: Sized;
+	fn from_bytes(bytes: HexBytes) -> Self;
 	/// Convert a hex string into a Script type.
-	fn from_str(hex: &str) -> Self where Self: Sized;
+	fn from_str(hex: &str) -> Self;
 
 	/// Create a new Pay-to-Script-Hash (P2SH) type script given an original script. This function does a hash160 of
 	/// the provided raw script before generating the P2SH script.
-	fn new_p2sh(original_script: HexBytes) -> Self where Self: Sized;
+	fn new_p2sh(original_script: HexBytes) -> Self;
 	/// Create a new Pay-to-Public-Key-Hash (P2PKH) type script given a public key.
-	fn new_p2pkh(public_key: HexBytes) -> Self where Self: Sized;
+	fn new_p2pkh(public_key: HexBytes) -> Self;
+	/// Create a new Pay-to-Public-Key (P2PK) type script given a public key.
+	fn new_p2pk(public_key: HexBytes) -> Self;
 
 	/// Checks whether a script pubkey is a P2SH output.
 	fn is_p2sh(&self) -> bool;
 	/// Checks whether a script pubkey is a P2PKH output.
 	fn is_p2pkh(&self) -> bool;
+	/// Checks whether a script pubkey is a P2PK output.
+	fn is_p2pk(&self) -> bool;
 
 	/// Generate an Base58 encoded address of a given script. 
 	/// Note: at the moment, this only generates an address for P2SH and P2PKH script types.
@@ -63,7 +67,7 @@ macro_rules! impl_script_for {
 				let script_hash = hash::hash160(&original_script);
 				let mut script_builder = ScriptBuilder::new();
 				script_builder.push_opcode(opcodes::all::OP_HASH160);
-				script_builder.push_script_hash(&script_hash);
+				script_builder.push_slice(&script_hash);
 				script_builder.push_opcode(opcodes::all::OP_EQUAL);
 				script_builder.into_script()
 			}
@@ -73,8 +77,15 @@ macro_rules! impl_script_for {
 				let mut script_builder = ScriptBuilder::new();
 				script_builder.push_opcode(opcodes::all::OP_DUP);
 				script_builder.push_opcode(opcodes::all::OP_HASH160);
-				script_builder.push_script_hash(&public_key_hash);
+				script_builder.push_slice(&public_key_hash);
 				script_builder.push_opcode(opcodes::all::OP_EQUALVERIFY);
+				script_builder.push_opcode(opcodes::all::OP_CHECKSIG);
+				script_builder.into_script()
+			}
+
+			fn new_p2pk(public_key: HexBytes) -> Self {
+				let mut script_builder = ScriptBuilder::new();
+				script_builder.push_slice(&public_key);
 				script_builder.push_opcode(opcodes::all::OP_CHECKSIG);
 				script_builder.into_script()
 			}
@@ -95,6 +106,22 @@ macro_rules! impl_script_for {
 					&& self.script[2] == opcodes::all::OP_PUSHBYTES_20.into_u8()
 					&& self.script[23] == opcodes::all::OP_EQUALVERIFY.into_u8()
 					&& self.script[24] == opcodes::all::OP_CHECKSIG.into_u8()
+			}
+
+			#[inline]
+			fn is_p2pk(&self) -> bool {
+				// Public keys are always of length 65 bytes (or 33 bytes compressed)
+				match self.script.len() {
+					67 => {
+						self.script[0] == opcodes::all::OP_PUSHBYTES_65.into_u8()
+							&& self.script[66] == opcodes::all::OP_CHECKSIG.into_u8()
+					}
+					35 => {
+						self.script[0] == opcodes::all::OP_PUSHBYTES_33.into_u8()
+							&& self.script[34] == opcodes::all::OP_CHECKSIG.into_u8()
+					}
+					_ => false
+				}
 			}
 
 			fn get_address(&self) -> Option<String> {
@@ -124,6 +151,8 @@ macro_rules! impl_script_for {
 					ScriptType::P2SH
 				} else if self.is_p2pkh() {
 					ScriptType::P2PKH
+				} else if self.is_p2pk() {
+					ScriptType::P2PK
 				} else {
 					ScriptType::Custom
 				}
@@ -185,6 +214,7 @@ pub struct ScriptPubKey {
 pub enum ScriptType {
 	P2SH,
 	P2PKH,
+	P2PK,
 	Custom
 }
 
@@ -219,8 +249,9 @@ macro_rules!  impl_serialize_for {
 				println!("What type of script do you want to create?");
 				println!("1. P2SH");
 				println!("2. P2PKH");
-				println!("3. Leave empty (00)");
-				println!("4. Custom (be careful)");
+				println!("3. P2PK");
+				println!("4. Leave empty (00)");
+				println!("5. Custom (be careful)");
 				println!("Enter option:");
 				let option = reader.user_read_u32();
 
@@ -243,9 +274,13 @@ macro_rules!  impl_serialize_for {
 					println!("Enter the public key:");
 					let key = <$ty>::from_bytes(reader.user_read_hex_var());
 					Self::new_p2pkh(key.as_bytes())
-				} else if option == 3 { // empty, useful for signrawtransactionwithwallet
+				} else if option == 3 { // p2pk script
+					println!("Enter the public key:");
+					let key = <$ty>::from_bytes(reader.user_read_hex_var());
+					Self::new_p2pk(key.as_bytes())
+				}  else if option == 4 { // empty, useful for signrawtransactionwithwallet
 					<$ty>::from_str("00")
-				}  else if option == 4 { // custom script
+				} else if option == 5 { // custom script
 					<$ty>::from_bytes(reader.user_read_hex_var())
 				} else {
 					todo!()
@@ -284,7 +319,7 @@ macro_rules! impl_deserialize_for {
 					} else if opcode.code > opcodes::all::OP_PUSHBYTES_1.into_u8() && opcode.code <= opcodes::all::OP_PUSHBYTES_75.into_u8() {
 						let len = opcode.code;
 						let script = stream.read_hex_var(len as u64).expect("shouldn't fail i think");
-						script_builder.push_script_hash(&script)
+						script_builder.push_slice(&script)
 					} else if opcode.code >= opcodes::all::OP_PUSHNUM_1.into_u8() && 
 						opcode.code <= opcodes::all::OP_PUSHNUM_15.into_u8() {
 							script_builder.push_opcode(opcode);
@@ -381,7 +416,7 @@ impl ScriptBuilder {
 		// TODO: Not the best idea but it works for now
 		if code == opcodes::all::OP_INVALIDOPCODE {
 			let hash = token.decode_hex_be()?;
-			self.push_script_hash(&hash);
+			self.push_slice(&hash);
 		} else {
 			self.push_opcode(code);
 		}
@@ -389,11 +424,15 @@ impl ScriptBuilder {
 		Ok(())
 	}
 
+	fn push_key(&mut self, key: HexBytes) {
+
+	}
+
 	fn push_opcode(&mut self, opcode: opcodes::All) {
 		self.0.push(opcode.into_u8());
 	}
 
-	fn push_script_hash(&mut self, script_hash: &[u8]) {
+	fn push_slice(&mut self, script_hash: &[u8]) {
 		self.push_var_int(script_hash.len() as u64);
 		self.0.extend(script_hash.iter().cloned());
 	}
@@ -443,6 +482,7 @@ impl fmt::Display for ScriptType {
 		match *self {
 			ScriptType::P2SH => write!(f, "scripthash"),
 			ScriptType::P2PKH => write!(f, "pubkeyhash"),
+			ScriptType::P2PK => write!(f, "pubkey"),
 			ScriptType::Custom => write!(f, "non-standard"),
 		}
     }

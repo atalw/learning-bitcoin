@@ -10,6 +10,7 @@ mod opcodes;
 mod transaction;
 mod script;
 mod hash;
+mod key;
 
 /// Bitcoin transactions follow a specific encoding so that each node in the network can
 /// communicate in a shared language. Serialize is a trait which different components of a

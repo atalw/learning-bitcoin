@@ -33,7 +33,7 @@ pub trait Decodable {
 	fn decode_hex_be(&self) -> Result<HexBytes, ParseIntError>;
 }
 
-// TODO: Can this be broken?
+// TODO: Is this *too* generic?
 impl<T: Sized + LowerHex> Encodable for [T] {
 	fn encode_hex_le(&self) -> String {
 		let mut s = String::with_capacity(self.len() * 2);

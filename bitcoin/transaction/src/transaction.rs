@@ -347,7 +347,7 @@ use crate::{Serialize, Deserialize};
 		stream.write(b"\n")?;
 		stream.write(b"1000")?;
 		stream.write(b"\n")?;
-		stream.write(b"4")?;
+		stream.write(b"5")?;
 		stream.write(b"\n")?;
 		stream.write(b"abcdef")?;
 		stream.write(b"\n")?;

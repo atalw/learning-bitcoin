@@ -250,7 +250,7 @@ macro_rules!  impl_serialize_for {
 				println!("1. P2SH");
 				println!("2. P2PKH");
 				println!("3. P2PK");
-				println!("4. Leave empty (00)");
+				println!("4. Leave empty");
 				println!("5. Custom (be careful)");
 				println!("Enter option:");
 				let option = reader.user_read_u32();
@@ -279,7 +279,7 @@ macro_rules!  impl_serialize_for {
 					let key = <$ty>::from_bytes(reader.user_read_hex_var());
 					Self::new_p2pk(key.as_bytes())
 				}  else if option == 4 { // empty, useful for signrawtransactionwithwallet
-					<$ty>::from_str("00")
+					<$ty>::from_str("")
 				} else if option == 5 { // custom script
 					<$ty>::from_bytes(reader.user_read_hex_var())
 				} else {
